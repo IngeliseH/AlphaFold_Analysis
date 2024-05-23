@@ -255,9 +255,9 @@ def measure_repeatibility(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
 ####################################################################################################
 # Example usage
 # pdb files (AF2)
-folder_path = "Sak_Sas6/Sak_D3+Sas6_D1"
-num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=10, all_atom=True)
+#folder_path = "Sak_Sas6/Sak_D3+Sas6_D1"
+#num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=10, all_atom=True)
 
 # cif files (AF3) - run with same command as above, adjustment is internal
-folder_path = "fold_ana2_flp_sak_fl"
-num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)
+#folder_path = "fold_ana2_flp_sak_fl"
+#num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)

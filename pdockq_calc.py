@@ -35,7 +35,7 @@ def convert_json_to_pkl(json_filename):
             plddt_scores = np.array(data['atom_plddts'])
         else:
             raise ValueError("Neither 'plddt' nor 'atom_plddts' found in the JSON file.")
-    pkl_filename = json_filename.rsplit('.', 1)[0] + '.pkl'
+    pkl_filename = str(json_filename).rsplit('.', 1)[0] + '.pkl'
     with open(pkl_filename, 'wb') as pkl_file:
         pickle.dump({'plddt': plddt_scores}, pkl_file)
     return pkl_filename
@@ -100,7 +100,7 @@ def parse_cif_atm_record(cif_file):
     Returns:
         - chains (dict): Dictionary containing the coordinates of the CB atoms for each chain
     """
-    doc = gemmi.cif.read(cif_file)
+    doc = gemmi.cif.read(str(cif_file))
     block = doc.sole_block()
 
     print("Block categories:", block.get_mmcif_category_names())
@@ -213,9 +213,9 @@ def compute_pdockq(structure_file, json_file):
         - ppv (float): PPV score
     """
     # Determine file type
-    if structure_file.endswith('.cif'):
+    if structure_file.suffix == '.cif':
         chain_coords, residues = parse_cif_atm_record(structure_file)
-    elif structure_file.endswith('.pdb'):
+    elif structure_file.suffix == '.pdb':
         chain_coords = read_pdb(structure_file)
         residues = None  # Not used for PDB files
     else:
@@ -238,14 +238,14 @@ def compute_pdockq(structure_file, json_file):
 
 ####################################################################################################
 # Example usage
-from analysis_utility import find_rank_001_files
+#from analysis_utility import find_rank_001_files
 
 # Example usage for AF2 files
-structure_file, json_file, PAE_png, fasta_file = find_rank_001_files('Sak_Sas6/Sak_D3+Sas6_D1')
-pdockq, ppv = compute_pdockq(structure_file, json_file)
-print(f"Calculated pDockQ = {pdockq}, PPV = {ppv}")
+#structure_file, json_file, PAE_png, fasta_file = find_rank_001_files('Sak_Sas6/Sak_D3+Sas6_D1')
+#pdockq, ppv = compute_pdockq(structure_file, json_file)
+#print(f"Calculated pDockQ = {pdockq}, PPV = {ppv}")
 
 # Example usage for AF3 files
-structure_file, json_file, PAE_png, fasta_file = find_rank_001_files('fold_ana2_flp_sak_fl')
-pdockq, ppv = compute_pdockq(structure_file, json_file)
-print(f"Calculated pDockQ = {pdockq}, PPV = {ppv}")
+#structure_file, json_file, PAE_png, fasta_file = find_rank_001_files('fold_ana2_flp_sak_fl')
+#pdockq, ppv = compute_pdockq(structure_file, json_file)
+#print(f"Calculated pDockQ = {pdockq}, PPV = {ppv}")

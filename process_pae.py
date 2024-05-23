@@ -1,15 +1,39 @@
 """
-Visualize the PAE matrix using a heatmap.
+Process PAE matrix
 
 Functions:
+find_min_pae
 visualize_pae_matrix
 """
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from analysis_utility import determine_chain_lengths
 
-def visualize_pae_matrix(pae_matrix, cmap="Spectral", chain_lengths=None, interval=50):
+def find_min_pae(structure_model, pae_matrix):
+    """
+    Identify the minimum interprotein PAE value between two proteins
+
+    Parameters:
+        - structure_model (Bio.PDB.Model): The structure model of the protein
+        - pae_matrix (np.array): The PAE matrix of the protein
+
+    Returns:
+        - float: The minimum interprotein PAE value
+    """
+    chain_lengths = determine_chain_lengths(structure_model)
+    if len(chain_lengths) != 2:
+        raise ValueError("This function currently only works for interprotein PAE calculations between 2 proteins")
+    len_A, _ = chain_lengths
+    interprotein_pae1 = pae_matrix[:len_A, len_A:].T
+    interprotein_pae2 = pae_matrix[len_A:, :len_A].T
+
+    min_pae1 = np.min(interprotein_pae1)
+    min_pae2 = np.min(interprotein_pae2)
+    return min(min_pae1,min_pae2)
+
+def visualize_pae_matrix(pae_matrix, chain_lengths=None, cmap="Spectral", interval=50):
     """
     Visualizes the PAE matrix using a heatmap.
     Recommend cmap Spectral for nice visualization or bwr for match with automatic colormap
@@ -73,3 +97,15 @@ def visualize_pae_matrix(pae_matrix, cmap="Spectral", chain_lengths=None, interv
     plt.tight_layout()
 
     plt.show()
+
+####################################################################################################
+# Example usage:
+#from analysis_utility import extract_pae, find_rank_001_files, parse_structure_file, determine_chain_lengths
+
+#folder_path = 'Sak_Sas6/Sak_D3+Sas6_D1'
+#pdb_file, json_file, PAE_png, fasta_file = find_rank_001_files(folder_path)
+#structure_model = parse_structure_file(pdb_file)
+#pae_matrix = extract_pae(json_file)
+#min_pae = find_min_pae(structure_model, pae_matrix)
+#chain_lengths = determine_chain_lengths(structure_model)
+#visualize_pae_matrix(pae_matrix, chain_lengths)

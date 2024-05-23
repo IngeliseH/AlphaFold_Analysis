@@ -83,3 +83,13 @@ def correct_cif_pae(model, pae_data):
     condensed_pae_matrix = condense_pae(pae_data, res_to_pos)
 
     return condensed_pae_matrix
+
+####################################################################################################
+# Example usage
+#from analysis_utility import parse_structure_file, extract_pae, find_rank_001_files
+#folder_path = "fold_ana2_flp_sak_fl"
+
+#cif_file, json_file, _, _ = find_rank_001_files(folder_path)
+#structure_model = parse_structure_file(cif_file, is_pdb=False)
+#pae_data = extract_pae(json_file)
+#corrected_pae = correct_cif_pae(structure_model, pae_data)
