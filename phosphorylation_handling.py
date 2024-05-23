@@ -6,6 +6,7 @@ map_res_to_pos(chain_residue_map)
 condense_pae(pae_matrix, res_to_pos)
 """
 import numpy as np
+from analysis_utility import map_chains_and_residues
 
 # create mapping from residue indices to PAE matrix indices
 def map_res_to_pos(chain_residue_map):
@@ -20,7 +21,7 @@ def map_res_to_pos(chain_residue_map):
     """
     res_to_pos = {}
     prev_pos = 0
-    for chain_id, res_id, res_name, abs_res_id in chain_residue_map:
+    for _, _, res_name, abs_res_id in chain_residue_map:
         if res_name == "TPO":
             num_atoms = 10
         elif res_name == "SEP":
@@ -65,3 +66,20 @@ def condense_pae(pae_matrix, res_to_pos):
             new_pae_matrix[i, j] = min_value
 
     return new_pae_matrix
+
+def correct_cif_pae(model, pae_data):
+    """
+    Overall function to correct the PAE matrix for phosphorylated residues.
+    
+    Parameters:
+        - model (Bio.PDB.Model.Model): The structure model.
+        - pae_data (list): The original PAE matrix.
+        
+    Returns:
+        - list: Condensed PAE matrix.
+    """
+    chain_residue_map = map_chains_and_residues(model)
+    res_to_pos = map_res_to_pos(chain_residue_map)
+    condensed_pae_matrix = condense_pae(pae_data, res_to_pos)
+
+    return condensed_pae_matrix
