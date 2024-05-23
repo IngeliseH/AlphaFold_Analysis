@@ -14,7 +14,20 @@ import re
 
 def find_rank_001_files(folder_path, af3=False):
     """
-    Search for the pdb and json files with rank_001 in the given folder.
+    Identifies the highest ranked model files in the given folder, as well as the PAE
+    PNG and FASTA files if using AF2.
+
+    Parameters:
+        - folder_path (str): Path to the folder containing the model files.
+        - af3 (bool): Whether the files are from AlphaFold3 (default: False).
+    
+    Returns:
+        - tuple: Path to the PDB file, path to the JSON file, path to the PAE PNG file,
+          path to the FASTA file.
+    
+    Note:
+        - The af3 argument can be unset even if the files are from AlphaFold3 - if no
+            PDB file is found, the function will automatically look for a CIF file.
     """
     pdb_file, json_file, PAE_png, fasta_file = None, None, None, None  # Initialize with None to avoid UnboundLocalError
     if af3 == False:
@@ -45,10 +58,10 @@ def extract_fasta_protein_lengths(fasta_file):
     Assumes the fasta file contains 2 sequences separated by ':'.
 
     Parameters:
-    fasta_file (str): Path to the FASTA file.
+        - fasta_file (str): Path to the FASTA file.
 
     Returns:
-    tuple: Length of the first protein, length of the second protein.
+        - tuple: Length of the first protein, length of the second protein.
     """
     with open(fasta_file, 'r') as file:
         lines = file.readlines()  # Read all lines in the file
@@ -61,10 +74,10 @@ def parse_cif(cif_file):
     Parses the CIF file to identify chain, residue ID, residue name, and absolute residue ID.
     
     Parameters:
-    cif_file (str): Path to the CIF file.
+        - cif_file (str): Path to the CIF file.
 
     Returns:
-    chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
+        - chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
     """
     chain_residue_map = []
     unique_residues = set()
@@ -76,7 +89,7 @@ def parse_cif(cif_file):
                 # Regex to capture atom name, chain identifier, and residue number
                 match = re.match(r"^(HETATM|ATOM)\s+\d+\s+\w+\s+\w+\s+\.\s+(\w+)\s+(\w)\s+\d+\s+(\d+)", line)
                 if match:
-                    atom_type, res_name, chain_id, res_id = match.groups()
+                    _, res_name, chain_id, res_id = match.groups()
                     res_id = int(res_id)
                     residue_tuple = (chain_id, res_id, res_name)
                     if residue_tuple not in unique_residues:
@@ -95,10 +108,10 @@ def determine_cif_chain_lengths(chain_residue_map):
     using the chain_residue_map.
 
     Parameters:
-    chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
+        - chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
 
     Returns:
-    list: A list of chain lengths in the order they appear.
+        - list: A list of chain lengths in the order they appear.
     """
     chain_lengths = []
     current_chain_id = None
@@ -122,10 +135,10 @@ def extract_pae(json_file):
     Parses the PAE JSON file to extract the PAE matrix.
 
     Parameters:
-    pae_file (str): Path to the PAE JSON file.
+        - pae_file (str): Path to the PAE JSON file.
 
     Returns:
-    list: PAE matrix.
+        - list: PAE matrix.
     """
     with open(json_file, 'r') as file:
         data = json.load(file)

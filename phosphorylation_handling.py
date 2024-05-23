@@ -13,10 +13,10 @@ def map_res_to_pos(chain_residue_map):
     Creates a mapping from residue indices to PAE matrix indices.
 
     Parameters:
-    chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
+        - chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
 
     Returns:
-    dict: Mapping from residue indices to PAE matrix indices.
+        - dict: Mapping from residue indices to PAE matrix indices.
     """
     res_to_pos = {}
     prev_pos = 0
@@ -41,11 +41,11 @@ def condense_pae(pae_matrix, res_to_pos):
     Condenses the PAE matrix by combining data for phosphorylated residues.
 
     Parameters:
-    pae_matrix (list): The original PAE matrix.
-    res_to_pos (dict): Mapping from residue indices to PAE matrix indices.
+        - pae_matrix (list): The original PAE matrix.
+        - res_to_pos (dict): Mapping from residue indices to PAE matrix indices.
 
     Returns:
-    list: Condensed PAE matrix.
+        - list: Condensed PAE matrix.
     """
     # Convert the PAE matrix to a numpy array for easier manipulation
     pae_matrix = np.array(pae_matrix)

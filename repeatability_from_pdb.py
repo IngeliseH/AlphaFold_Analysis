@@ -14,6 +14,8 @@ get_residue_pairs
 find_confident_interface_residues
 check_distances_across_models
 measure_repeatibility
+
+Assumes structures contain exactly two chains
 """
 import os
 import re
@@ -62,6 +64,7 @@ def get_residue_pairs(pdb_path, distance_cutoff, is_pdb):
                     try:
                         distance = res1['CA'].coord - res2['CA'].coord
                         if np.linalg.norm(distance) < distance_cutoff:
+                            # Calculate residue numbers relative to the full sequence (assuming two chains only)
                             res2_id = res2.id[1] + chain_lengths[chain1.id]
                             residue_pairs.append((res1_id, res2_id))
                     except KeyError:

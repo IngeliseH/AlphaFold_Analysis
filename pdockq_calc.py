@@ -1,5 +1,9 @@
 """
 pdockq calculation (for AF2 or AF3 output)
+Adapted from Elofsson Lab's code
+Changes made:
+    - Runs as functions rather than through command line
+    - Adapted to be compatible with AF3 output (cif files) as well as AF2 output (pdb files)
 
 Functions:
 convert_json_to_pkl
@@ -21,7 +25,7 @@ def convert_json_to_pkl(json_filename):
     Convert JSON file to PKL file
 
     Parameters:
-    json_filename (str): JSON file to convert
+        - json_filename (str): JSON file to convert
     """
     with open(json_filename, 'r') as json_file:
         data = json.load(json_file)
@@ -41,10 +45,10 @@ def parse_atm_record(line):
     Parse an ATOM record from a PDB file
     
     Parameters:
-    line (str): ATOM record from a PDB file
+        - line (str): ATOM record from a PDB file
     
     Returns:
-    record (dict): Dictionary containing the parsed ATOM record
+        - record (dict): Dictionary containing the parsed ATOM record
     """
     record = defaultdict()
     record['name'] = line[0:6].strip()
@@ -68,10 +72,10 @@ def read_pdb(pdbfile):
     Read a PDB file and extract the coordinates of the CB atoms
 
     Parameters:
-    pdbfile (str): Path to the PDB file to read
+        - pdbfile (str): Path to the PDB file to read
 
     Returns:
-    chain_coords (dict): Dictionary containing the coordinates of the CB atoms for each chain
+        - chain_coords (dict): Dictionary containing the coordinates of the CB atoms for each chain
     """
     chain_coords = {}
     with open(pdbfile, 'r') as file:
@@ -91,10 +95,10 @@ def parse_cif_atm_record(cif_file):
     Parse an ATOM record from a CIF file
     
     Parameters:
-    cif_file (str): Path to the CIF file to read
+        - cif_file (str): Path to the CIF file to read
     
     Returns:
-    chains (dict): Dictionary containing the coordinates of the CB atoms for each chain
+        - chains (dict): Dictionary containing the coordinates of the CB atoms for each chain
     """
     doc = gemmi.cif.read(cif_file)
     block = doc.sole_block()
@@ -131,11 +135,11 @@ def average_plddt_per_residue(plddt, residues):
     Calculate the average pLDDT score for each residue
 
     Parameters:
-    plddt (np.array): Array of pLDDT scores for each atom
-    residues (dict): Dictionary containing the atoms for each residue
+        - plddt (np.array): Array of pLDDT scores for each atom
+        - residues (dict): Dictionary containing the atoms for each residue
 
     Returns:
-    residue_plddt (np.array): Array of average pLDDT scores for each residue
+        - residue_plddt (np.array): Array of average pLDDT scores for each residue
     """
     residue_plddt = []
     for residue_atoms in residues.values():
@@ -149,9 +153,9 @@ def calc_pdockq(chain_coords, plddt, t=8):
     Calculate pDockQ and PPV
 
     Parameters:
-    chain_coords (dict): Dictionary containing the coordinates of the CB atoms for each chain
-    plddt (np.array): Array of pLDDT scores for each residue
-    t (int): Distance threshold for contact calculation
+        - chain_coords (dict): Dictionary containing the coordinates of the CB atoms for each chain
+        - plddt (np.array): Array of pLDDT scores for each residue
+        - t (int): Distance threshold for contact calculation
 
     Returns:
     pdockq (float): pDockQ score
@@ -201,12 +205,12 @@ def compute_pdockq(structure_file, json_file):
     Compute pDockQ and PPV scores for a given structure and JSON file
     
     Parameters:
-    structure_file (str): Path to the structure file (CIF or PDB)
-    json_file (str): Path to the JSON file
+        - structure_file (str): Path to the structure file (CIF or PDB)
+        - json_file (str): Path to the JSON file
     
     Returns:
-    pdockq (float): pDockQ score
-    ppv (float): PPV score
+        - pdockq (float): pDockQ score
+        - ppv (float): PPV score
     """
     # Determine file type
     if structure_file.endswith('.cif'):
