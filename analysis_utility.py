@@ -8,9 +8,10 @@ parse_cif
 determine_cif_chain_lengths
 extract_pae
 """
-import os
 import json
-import re
+from pathlib import Path
+from Bio.PDB import PDBParser
+from Bio.PDB import MMCIFParser
 
 def find_rank_001_files(folder_path, af3=False):
     """
@@ -27,29 +28,30 @@ def find_rank_001_files(folder_path, af3=False):
     
     Note:
         - The af3 argument can be unset even if the files are from AlphaFold3 - if no
-            PDB file is found, the function will automatically look for a CIF file.
+            PDB file is found, the function will automatically look for a CIF file. If
+            files are from AF3, setting af3 to True will marginally increase speed.
     """
-    pdb_file, json_file, PAE_png, fasta_file = None, None, None, None  # Initialize with None to avoid UnboundLocalError
-    if af3 == False:
-        for file in os.listdir(folder_path):
-            if 'rank_001' in file or 'rank_1' in file:
-                if file.endswith('.pdb'):
-                    pdb_file = os.path.join(folder_path, file)
-                elif file.endswith('.json'):
-                    json_file = os.path.join(folder_path, file) 
-            if 'pae.png' in file:
-                    PAE_png = os.path.join(folder_path, file)
-            if '.fasta' in file:
-                    fasta_file = os.path.join(folder_path, file)
+    folder = Path(folder_path)
+    pdb_file, json_file, PAE_png, fasta_file = None, None, None, None
+    if not af3:
+        # AlphaFold2 file handling
+        for file in folder.glob('*'):
+            if 'rank_001' in file.stem or 'rank_1' in file.stem:
+                if file.suffix == '.pdb':
+                    pdb_file = file
+                elif file.suffix == '.json':
+                    json_file = file
+            if 'pae' in file.stem and file.suffix == '.png':
+                PAE_png = file
+            if file.suffix == '.fasta':
+                fasta_file = file
     # AF3 will have cif file instead of pdb file
     if af3 == True or not pdb_file:
-        for file in os.listdir(folder_path):
-            if 'model_0' in file and file.endswith('.cif'):
-                pdb_file = os.path.join(folder_path, file)
-            if 'full_data_0' in file and file.endswith('.json'):
-                json_file = os.path.join(folder_path, file)
-        PAE_png = None
-        fasta_file = None
+        for file in folder.glob('*'):
+            if 'model_0' in file.stem and file.suffix == '.cif':
+                pdb_file = file
+            elif 'full_data_0' in file.stem and file.suffix == '.json':
+                json_file = file
     return pdb_file, json_file, PAE_png, fasta_file
 
 def extract_fasta_protein_lengths(fasta_file):
@@ -69,38 +71,46 @@ def extract_fasta_protein_lengths(fasta_file):
     sequences = fasta_content.strip().split(':')
     return len(sequences[0]), len(sequences[1])
 
-def parse_cif(cif_file):
+def parse_structure_file(file_path, is_pdb=True):
     """
-    Parses the CIF file to identify chain, residue ID, residue name, and absolute residue ID.
+    Parses the structure file (PDB or CIF) and returns the model.
     
     Parameters:
-        - cif_file (str): Path to the CIF file.
+        - file_path (str): Path to the structure file.
+        - is_pdb (bool): Whether the file is in PDB format (default: True).
+    """
+    parser = PDBParser() if is_pdb else MMCIFParser()
+    structure = parser.get_structure('protein', file_path)
+    model = structure[0]
+    return model
 
+def map_chains_and_residues(model):
+    """
+    Maps the chains and residues in the structure model to their absolute residue IDs.
+    Absolute residue IDs are unique across all chains.
+    
+    Parameters:
+        - model (Bio.PDB.Model.Model): The structure model.
+        
     Returns:
-        - chain_residue_map (list): List of tuples representing chain, residue ID, residue name, and absolute residue ID.
+        - chain_residue_map (list): List of tuples representing chain, residue ID, residue
+          name, and absolute residue ID.
     """
     chain_residue_map = []
     unique_residues = set()
-    with open(cif_file, 'r') as file:
-        lines = file.readlines()
-        abs_res_id = 0
-        for line in lines:
-            if line.startswith("HETATM") or line.startswith("ATOM"):
-                # Regex to capture atom name, chain identifier, and residue number
-                match = re.match(r"^(HETATM|ATOM)\s+\d+\s+\w+\s+\w+\s+\.\s+(\w+)\s+(\w)\s+\d+\s+(\d+)", line)
-                if match:
-                    _, res_name, chain_id, res_id = match.groups()
-                    res_id = int(res_id)
-                    residue_tuple = (chain_id, res_id, res_name)
-                    if residue_tuple not in unique_residues:
-                        chain_residue_map.append((chain_id, res_id, res_name, abs_res_id))
-                        unique_residues.add(residue_tuple)
-                        abs_res_id += 1
-    
-    # Sort the chain-residue map
-    chain_residue_map = sorted(chain_residue_map)
+    abs_res_id = 0
 
-    return chain_residue_map
+    for chain in model.get_chains():
+        chain_id = chain.id
+        for residue in chain.get_residues():
+            res_id = residue.id[1]
+            res_name = residue.resname
+            residue_tuple = (chain_id, res_id, res_name)
+            if residue_tuple not in unique_residues:
+                chain_residue_map.append((chain_id, res_id, res_name, abs_res_id))
+                unique_residues.add(residue_tuple)
+                abs_res_id += 1
+    return sorted(chain_residue_map)
 
 def determine_cif_chain_lengths(chain_residue_map):
     """
@@ -117,7 +127,7 @@ def determine_cif_chain_lengths(chain_residue_map):
     current_chain_id = None
     current_chain_length = 0
 
-    for chain_id, res_id, res_name, abs_res_id in chain_residue_map:
+    for chain_id, _, _, _ in chain_residue_map:
         if chain_id != current_chain_id:
             if current_chain_id is not None:
                 chain_lengths.append(current_chain_length)
@@ -142,5 +152,4 @@ def extract_pae(json_file):
     """
     with open(json_file, 'r') as file:
         data = json.load(file)
-    #return data['pae'] or data['predicted_aligned_error'] if either of these is present, else error
     return data.get('pae', data.get('predicted_aligned_error', 'Error: PAE not found'))
