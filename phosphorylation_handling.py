@@ -23,9 +23,9 @@ def map_res_to_pos(chain_residue_map):
     prev_pos = 0
     for _, _, res_name, abs_res_id in chain_residue_map:
         if res_name == "TPO":
-            num_atoms = 10
+            num_atoms = 11
         elif res_name == "SEP":
-            num_atoms = 9
+            num_atoms = 10
         else:
             num_atoms = 1
         for _ in range(num_atoms):
