@@ -4,8 +4,10 @@ Convert phosphorylated residue indices to regular residue indices in the PAE mat
 Functions:
 map_res_to_pos(chain_residue_map)
 condense_pae(pae_matrix, res_to_pos)
+correct_cif_pae(model, pae_data)
 """
 import numpy as np
+import json
 from analysis_utility import map_chains_and_residues
 
 # create mapping from residue indices to PAE matrix indices
@@ -84,6 +86,30 @@ def correct_cif_pae(model, pae_data):
 
     return condensed_pae_matrix
 
+def output_chimerax_readable_json(pae_matrix, save_location = 'pae_data.json'):
+    """
+    Saves PAE data to a JSON file at the specified location.
+
+    Parameters:
+    - pae_matrix (np.ndarray): The PAE matrix data as a NumPy array.
+    - save_location (str): The path to save the JSON file. Default is 'pae_data.json'.
+
+    Returns:
+    - None
+    """
+    
+    # Calculate the maximum PAE value
+    max_pae = np.max(pae_matrix)
+    # Create dictionary to be exported as JSON
+    data_to_export = {
+        "pae": pae_matrix.tolist(),  # Convert the entire PAE matrix to a list of lists
+        "max_pae": float(max_pae)    # Convert NumPy float to standard Python float
+    }
+    # Write to JSON file
+    with open(save_location, 'w') as json_file:
+        json.dump(data_to_export, json_file, indent=4)
+    print("PAE data written to {save_location}.")
+
 ####################################################################################################
 # Example usage
 #from analysis_utility import parse_structure_file, extract_pae, find_rank_001_files
@@ -93,3 +119,4 @@ def correct_cif_pae(model, pae_data):
 #structure_model = parse_structure_file(cif_file, is_pdb=False)
 #pae_data = extract_pae(json_file)
 #corrected_pae = correct_cif_pae(structure_model, pae_data)
+#output_chimerax_readable_json(corrected_pae)
