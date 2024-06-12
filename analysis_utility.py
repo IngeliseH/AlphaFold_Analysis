@@ -155,19 +155,15 @@ def extract_pae(json_file):
     pae_matrix = np.array(pae)
     return pae_matrix
 
-def extract_iptm(file_path, is_pdb=True):
+def extract_iptm(file_path):
     """
     Extract the first IPTM value from a log file (.txt) or directly from a .json file based on the file type and content.
 
     Parameters:
         - file_path (str): Path to the log or json file from which the ipTM value is to be extracted.
-        - is_pdb (bool, optional): If True (default), the function expects a .txt log file; if False, a .json file.
 
     Returns:
         - float: The first ipTM value found in the file, or 0 if no ipTM values are found.
-
-    Note:
-        - If is_pdb is True (manually set or left as default) but 
     """
     # If the file is a txt file, attempt to extract the IPTM value
     if file_path.suffix == '.txt':

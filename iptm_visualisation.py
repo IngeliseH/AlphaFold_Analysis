@@ -1,39 +1,60 @@
 """
-Functions to extract and visualize the highest prediction iptm values for each domain pair of a protein pair
+Functions to extract and visualize top model iptm values
 
-Only for use with predictions outputting log files - doesn't work with AlphaFold3
+All functons except extract_iptm are desiged only for use with AF2 - as these work
+with protein pair folders containing domain pair folders, and AF3 is expected to
+only use FL protein pairs
 
 Functions:
-extract_highest_iptm_value
+extract_iptm
 sort_domains
 create_iptm_matrix
 visualize_iptm_matrix
 """
 import os
+import json
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def extract_highest_iptm_value(log_file_path):
+
+def extract_iptm(file_path):
     """
-    Extract the highest iptm value from a log.txt file.
-    
+    Extract the first IPTM value from a log file (.txt) or directly from a .json
+    file based on the file type and content.
+
     Parameters:
-        - log_file_path (str): The path to the log.txt file.
-        
+        - file_path (str): Path to the log or json file from which the ipTM value
+          is to be extracted.
+
     Returns:
-        - float: The highest iptm value.
+        - float: The first ipTM value found in the file, or 0 if no ipTM values are
+          found.
     """
-    with open(log_file_path, 'r') as file:
-        log_content = file.read()
-    # for colabfold < 1.5.5
-    iptm_values = re.findall(r'iptm (\d*\.?\d+)', log_content)
-    # for colabfold 1.5.5
-    if not iptm_values:
-        iptm_values = re.findall(r'ipTM=(\d*\.?\d+)\n', log_content)
-    iptm_values = [float(value) for value in iptm_values]
-    return max(iptm_values) if iptm_values else 0
+    # If the file is a txt file, attempt to extract the IPTM value
+    if file_path.suffix == '.txt':
+        # Regex for extracting IPTM values from log files
+        iptm_pattern = re.compile(r'(?:iptm |ipTM=)(\d*\.?\d+)\n')
+        try:
+            with open(file_path, 'r') as file:
+                for line in file:
+                    match = iptm_pattern.search(line)
+                    if match:
+                        return float(match.group(1))
+        except FileNotFoundError:
+            print(f"File not found: {file_path}")
+
+    # If the file is a JSON file, attempt to extract the IPTM value
+    elif file_path.suffix == '.json':
+        try:
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+                return float(data["iptm"]) if "iptm" in data else 0
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error reading JSON file: {file_path} with error {e}")
+
+    return 0
 
 def sort_domains(domain_list):
     """
@@ -98,7 +119,7 @@ def visualize_iptm_matrix(matrix, output_png_path):
 
 ####################################################################################################
 # Example usage
-#full_path = '/path/to/your/colabfold/output'
+#full_path = 'Ana2_mus101'
 #iptm_matrix = create_iptm_matrix(full_path)
 #png_file_path = os.path.join(full_path, 'iptm_matrix.png')
 #visualize_iptm_matrix(iptm_matrix, png_file_path)
