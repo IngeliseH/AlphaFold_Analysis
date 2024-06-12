@@ -198,7 +198,7 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
             print(f"Mapping not found for abs_res_ids: {abs_res1}, {abs_res2}")
     return sorted_model_consistency_scores, num_consistent_models, average_consistency_level, res_pairs
 
-def measure_repeatibility(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, all_atom=False):
+def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, all_atom=False):
     """
     Measure the similarity of confident interfaces across multiple models.
 
@@ -224,7 +224,7 @@ def measure_repeatibility(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
           consistency
     """
     # Find the top ranked predicted structure file and check if it is in PDB or CIF format
-    rank1_structure_file, rank1_json, _, _ = find_rank_001_files(folder_path)
+    rank1_structure_file, rank1_json, _, _, _ = find_rank_001_files(folder_path)
     is_pdb = True
     if rank1_structure_file.suffix != '.pdb':
         is_pdb = False
@@ -240,12 +240,12 @@ def measure_repeatibility(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
     
     # If confident interface residue pairs are found, check distances between these across other models, otherwise return 0
     if confident_pairs:
-        print(f"Found {len(confident_pairs)} confident interface residue pairs in the top ranked model.")
+        #print(f"Found {len(confident_pairs)} confident interface residue pairs in the top ranked model.")
         all_scores, num_consistent, level_consistent, consistent_pairs = check_distances_across_models(folder_path, confident_pairs, distance_cutoff, abs_res_lookup_dict, is_pdb, all_atom)
-        print(f"Individual model scores: {all_scores}")
-        print(f"Num models >50% consistent: {num_consistent} out of {len(all_scores)} total models.")
-        print(f"Avg consistency for consistent models: {level_consistent:.2f}")
-        print(f"Consistent pairs: {consistent_pairs}")
+        #print(f"Individual model scores: {all_scores}")
+        #print(f"Num models >50% consistent: {num_consistent} out of {len(all_scores)} total models.")
+        #print(f"Avg consistency for consistent models: {level_consistent:.2f}")
+        #print(f"Consistent pairs: {consistent_pairs}")
 
     else:
         all_scores, num_consistent, level_consistent = [], 0, 0
@@ -256,8 +256,8 @@ def measure_repeatibility(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
 # Example usage
 # pdb files (AF2)
 #folder_path = "Sak_Sas6/Sak_D3+Sas6_D1"
-#num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=10, all_atom=True)
+#num_consistent, level_consistent = measure_repeatability(folder_path, distance_cutoff=5, pae_cutoff=10, all_atom=True)
 
 # cif files (AF3) - run with same command as above, adjustment is internal
 #folder_path = "fold_ana2_flp_sak_fl"
-#num_consistent, level_consistent = measure_repeatibility(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)
+#num_consistent, level_consistent = measure_repeatability(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)
