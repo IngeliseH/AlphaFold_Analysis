@@ -20,7 +20,8 @@ def find_min_pae(structure_model, pae_matrix):
         - pae_matrix (np.array): The PAE matrix of the protein
 
     Returns:
-        - dict: Dictionary of minimum interprotein PAE values and their positions for each chain pair
+        - tuple or dict: If only two chains, returns a tuple (min PAE, position).
+          Otherwise, returns a dictionary of minimum interprotein PAE values and their positions for each chain pair.
     """
     chain_lengths = determine_chain_lengths(structure_model)
     if len(chain_lengths) < 2:
@@ -59,8 +60,10 @@ def find_min_pae(structure_model, pae_matrix):
                 'Position': min_pos
             }
 
-            # Output the result for each pair
-            print(f"Min PAE between Chain {i+1} and Chain {j+1}: {min_pae} at position {min_pos}")
+    # Simplify output if there are only two chains
+    if len(chain_lengths) == 2:
+        only_key = next(iter(min_pae_results))  # There will be only one key
+        return min_pae_results[only_key]['Min PAE'], min_pae_results[only_key]['Position']
 
     return min_pae_results
 
