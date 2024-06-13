@@ -21,29 +21,36 @@ import seaborn as sns
 
 def extract_iptm(file_path):
     """
-    Extract the first IPTM value from a log file (.txt) or directly from a .json
-    file based on the file type and content.
+    Extract the highest IPTM value from a log file (.txt) or the ipTM value from a .json
+    file based on the file type.
 
     Parameters:
         - file_path (str): Path to the log or json file from which the ipTM value
           is to be extracted.
 
     Returns:
-        - float: The first ipTM value found in the file, or 0 if no ipTM values are
+        - float: The highest ipTM value found in the file, or None if no ipTM values are
           found.
     """
     # If the file is a txt file, attempt to extract the IPTM value
     if file_path.suffix == '.txt':
-        # Regex for extracting IPTM values from log files
+        # Regex for extracting ipTM values from log files
         iptm_pattern = re.compile(r'(?:iptm |ipTM=)(\d*\.?\d+)\n')
+        max_iptm = None
         try:
             with open(file_path, 'r') as file:
                 for line in file:
                     match = iptm_pattern.search(line)
                     if match:
-                        return float(match.group(1))
+                        iptm_value = float(match.group(1))
+                        # Check if it's the highest ipTM value found so far (or the first)
+                        if max_iptm is None or iptm_value > max_iptm:
+                            max_iptm = iptm_value
+
         except FileNotFoundError:
             print(f"File not found: {file_path}")
+        
+        return max_iptm
 
     # If the file is a JSON file, attempt to extract the IPTM value
     elif file_path.suffix == '.json':
@@ -54,7 +61,7 @@ def extract_iptm(file_path):
         except (FileNotFoundError, json.JSONDecodeError) as e:
             print(f"Error reading JSON file: {file_path} with error {e}")
 
-    return 0
+    return None
 
 def sort_domains(domain_list):
     """
