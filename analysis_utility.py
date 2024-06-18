@@ -10,7 +10,6 @@ determine_chain_lengths
 extract_pae
 """
 import json
-import re
 import numpy as np
 from pathlib import Path
 from Bio.PDB import PDBParser
@@ -35,7 +34,7 @@ def find_rank_001_files(folder_path, af3=False):
             files are from AF3, setting af3 to True will marginally increase speed.
     """
     folder = Path(folder_path)
-    structure_file, json_file, PAE_png, fasta_file, log_file = None, None, None, None, None
+    structure_file, json_file, log_file, PAE_png, fasta_file = None, None, None, None, None
     if not af3:
         # AlphaFold2 file handling
         for file in folder.glob('*'):
@@ -46,7 +45,7 @@ def find_rank_001_files(folder_path, af3=False):
                     json_file = file
             if 'log' in file.stem and file.suffix == '.txt':
                 log_file = file
-            if 'pae' in file.stem and file.suffix == '.png':
+            if ('pae' in file.stem or 'PAE' in file.stem) and file.suffix == '.png':
                 PAE_png = file
             if file.suffix == '.fasta':
                 fasta_file = file
@@ -154,37 +153,3 @@ def extract_pae(json_file):
     pae = data.get('pae', data.get('predicted_aligned_error', 'Error: PAE not found'))
     pae_matrix = np.array(pae)
     return pae_matrix
-
-def extract_iptm(file_path):
-    """
-    Extract the first IPTM value from a log file (.txt) or directly from a .json file based on the file type and content.
-
-    Parameters:
-        - file_path (str): Path to the log or json file from which the ipTM value is to be extracted.
-
-    Returns:
-        - float: The first ipTM value found in the file, or 0 if no ipTM values are found.
-    """
-    # If the file is a txt file, attempt to extract the IPTM value
-    if file_path.suffix == '.txt':
-        # Regex for extracting IPTM values from log files
-        iptm_pattern = re.compile(r'(?:iptm |ipTM=)(\d*\.?\d+)\n')
-        try:
-            with open(file_path, 'r') as file:
-                for line in file:
-                    match = iptm_pattern.search(line)
-                    if match:
-                        return float(match.group(1))
-        except FileNotFoundError:
-            print(f"File not found: {file_path}")
-
-    # If the file is a JSON file, attempt to extract the IPTM value
-    elif file_path.suffix == '.json':
-        try:
-            with open(file_path, 'r') as file:
-                data = json.load(file)
-                return float(data["iptm"]) if "iptm" in data else 0
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error reading JSON file: {file_path} with error {e}")
-
-    return 0

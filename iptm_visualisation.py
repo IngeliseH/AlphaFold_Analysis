@@ -95,7 +95,7 @@ def create_iptm_matrix(base_folder):
             protein1_domain, protein2_domain = folder_name.split('+')
             protein1_domains.add(protein1_domain)
             protein2_domains.add(protein2_domain)
-            highest_iptm = extract_highest_iptm_value(os.path.join(root, 'log.txt'))
+            highest_iptm = extract_iptm(os.path.join(root, 'log.txt'))
             domain_pairs[(protein1_domain, protein2_domain)] = highest_iptm
 
     # Sort the domain lists

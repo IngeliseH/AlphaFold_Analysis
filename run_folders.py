@@ -88,7 +88,7 @@ def process_all_predictions(base_folder, output_path="alphafold_predictions_resu
     Returns:
         - None, but writes the results to a CSV file.
     """
-    headers = ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain', 'ipTM', 'min_PAE', 'pDockQ', 'PPV', 'Num_Consistent', 'Level_Consistent']
+    headers = ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain', 'ipTM', 'min_PAE', 'pDockQ', 'ppv', 'Num_Consistent', 'Level_Consistent']
 
     with open(output_path, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -109,7 +109,7 @@ def process_all_predictions(base_folder, output_path="alphafold_predictions_resu
                                 domain_path = os.path.join(domain_folder_path, domain_pair)
                                 # Extract domain information
                                 protein1_domain, protein2_domain = domain_pair.split('+')
-                                print(f"Processing {protein1_domain} and {protein2_domain}...")
+                                #print(f"Processing {protein1_domain} and {protein2_domain}...")
                                 # Process the domain pair folder
                                 iptm, min_pae, pdockq, ppv, num_consistent, level_consistent = process_alphafold_prediction(domain_path, **kwargs)
 
@@ -120,3 +120,7 @@ def process_all_predictions(base_folder, output_path="alphafold_predictions_resu
 # Example usage
 #base_folder = "../../../../../Dropbox/2022.10.20_Drosophila_Version_1"
 #process_all_predictions(base_folder)
+
+# For testing completion bias
+# path = "data/CENPJ_PALB2/CENPJ_D5+PALB2_D5"
+# print(process_alphafold_prediction(path))

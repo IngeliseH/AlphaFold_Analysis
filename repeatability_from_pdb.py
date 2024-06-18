@@ -249,7 +249,7 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
 
     else:
         all_scores, num_consistent, level_consistent = [], 0, 0
-        print("No confident interface residue pairs found in the top ranked model.")
+        #print("No confident interface residue pairs found in the top ranked model.")
     return num_consistent, level_consistent
 
 ####################################################################################################
