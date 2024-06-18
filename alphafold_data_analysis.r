@@ -2,7 +2,11 @@
 #Failure in merging or in processing evidence - too much data marked as having evidence, and evidence type not working
 # read lintr file
 read.dcf(".lintr")
+
+# Load necessary libraries
 library(dplyr)
+# For 3D plots
+library(rgl)
 
 # Function to load data supporting CSV and Excel formats with error handling
 load_data <- function(file_path) {
@@ -155,6 +159,31 @@ plot_box_plots <- function(data, metrics, x_column, color_var = NULL) {
   }
 }
 
+plot_3d <- function(data, x_var, y_var, z_var, color_var) {
+  # Ensure the color_var is a factor for consistent coloring
+  if (!is.factor(data[[color_var]])) {
+    data[[color_var]] <- as.factor(data[[color_var]])
+  }
+
+  # Colors - using a palette that scales with the number of levels in the factor
+  colors <- rainbow(length(levels(data[[color_var]])))
+
+  # Plotting the 3D scatter plot
+  plot3d(
+    x = data[[x_var]], 
+    y = data[[y_var]], 
+    z = data[[z_var]], 
+    col = colors[data[[color_var]]],  # Mapping colors based on the factor levels
+    xlab = x_var, 
+    ylab = y_var, 
+    zlab = z_var,
+    main = paste("3D Plot of", x_var, y_var, z_var, "colored by", color_var)
+  )
+
+  # Add a legend to the plot
+  legend3d("topright", legend = levels(data[[color_var]]), col = colors, pch = 16)
+}
+
 # Function to plot discretized variables against evidence type
 plot_discrete_evidence_comparison <- function(data, discrete_vars, evidence_type_column) {
   for (var in discrete_vars) {
@@ -193,15 +222,23 @@ plot_data_density <- function(data, x_var, y_var, file_name, add_regression = FA
   ggsave(file_name, plot = p, width = 10, height = 8)
 }
 
-# Execute the workflow
+############################################################################################################
+# Usage
 # Load and process data
-processed_data <- prep_alphafold_data("data/alphafold_predictions_results.csv")
-summary(processed_data)
-head(processed_data)
+data <- prep_alphafold_data("data/alphafold_predictions_results.csv")
+summary(data)
+head(data)
 
 # Perform statistical analysis
-models <- perform_logistic_regression(processed_data, c("ipTM", "min_PAE", "pDockQ"), "Evidence")
+models <- perform_logistic_regression(data, c("ipTM", "min_PAE", "pDockQ"), "Evidence")
 print(models)
+# Assess each metric compared to each other
+# filter data to remove rows where iptm == NA
+data <- data[!is.na(data$ipTM), ]
+cor(data[c("ipTM", "min_PAE", "pDockQ")])
+# filter to remove rows where min_PAE > 15
+data_minPAE_15 <- data[data$min_PAE <= 15, ]
+cor(data_minPAE_15[c("ipTM", "min_PAE", "pDockQ", "Num_Consistent")])
 
 # Generate plots
 # Plot min_PAE vs iptm
@@ -220,8 +257,13 @@ plot_data(data, "min_PAE", "ipTM", "Num_Consistent", file_name = "plots/min_PAE_
 plot_data(data, "Num_Consistent", "ipTM", "Level_Consistent", file_name = "plots/iptm_vs_num_consistent_vs_level_consistent_color.png")
 # Plot num_consistent vs min_PAE with level_consistent as color
 plot_data(data, "Num_Consistent", "min_PAE", "Level_Consistent", file_name = "plots/min_PAE_vs_num_consistent_vs_level_consistent_color.png")
+# Plot num_consistent vs ipTM with min_PAE as color
+plot_data(data, "Num_Consistent", "ipTM", "min_PAE", file_name = "plots/iptm_vs_num_consistent_vs_min_PAE_color.png")
 
+# 3D plot of min_PAE, ipTM, and pdockq coloured by Num_Consistent
+plot_3d(data, "ipTM", "min_PAE", "pdockq", "Num_Consistent")
 
+############################################################################################################
 # Comparing alphafold results to experimental data
 merged_data <- prep_for_experimental_comparison("data/alphafold_predictions_results.csv", "data/Merged_remove_duplicate_all.csv")
 summary(merged_data)
@@ -242,7 +284,8 @@ plot_discrete_evidence_comparison(merged_data, discrete_vars, "Evidence_Type")
 write.csv(merged_data, "data/processed_data.csv", row.names = FALSE)
 
 ############################################################################################################
-processed_data_2 <- prep_alphafold_data("data/alphafold_predictions_png_ROP.csv")
-summary(processed_data_2)
-plot_data(processed_data_2, "Num_Consistent", "Num_Consistent_png", "ipTM", "plots/Num_Consistent_vs_Num_Consistent_png_vs_ipTM_color.png", alpha = 0.01)
-plot_data_density(processed_data_2, "Num_Consistent", "Num_Consistent_png", "plots/Num_Consistent_vs_Num_Consistent_png_density.png", add_regression = TRUE)
+# comparing pae png assessed ROP to structure pae assessed ROP
+data_2 <- prep_alphafold_data("data/alphafold_predictions_png_ROP.csv")
+summary(data_2)
+plot_data(data_2, "Num_Consistent", "png_ROP", "ipTM", "plots/Num_Consistent_vs_Num_Consistent_png_vs_ipTM_color.png", alpha = 0.01)
+plot_data_density(data_2, "Num_Consistent", "png_ROP", "plots/Num_Consistent_vs_Num_Consistent_png_density.png", add_regression = TRUE)
