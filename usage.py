@@ -6,7 +6,6 @@ from repeatability_from_pdb import measure_repeatability
 from iptm_visualisation import create_iptm_matrix, visualize_iptm_matrix, extract_iptm
 from pdockq_calc import compute_pdockq
 
-
 # Example usage:
 # AF2 files
 af2_folder_path = 'Sak_Sas6/Sak_D3+Sas6_D1'
@@ -46,7 +45,7 @@ af3_folder_path = 'fold_ana2p_cterm_monomer_sas6_dimer'
 af3_folder_path = 'fold_ana2_flp_sak_fl'
 af3_folder_path = 'fold_ana2flp_all_dimer_sas6_dimer'
 # Process folder to find relevant files and read in data
-cif_file, json_file, _, _ = find_rank_001_files(af3_folder_path)
+cif_file, json_file, _, _, _ = find_rank_001_files(af3_folder_path)
 structure_model = parse_structure_file(cif_file, is_pdb=False)
 initial_pae_matrix = extract_pae(json_file)
 pae_matrix = correct_cif_pae(structure_model, initial_pae_matrix)
