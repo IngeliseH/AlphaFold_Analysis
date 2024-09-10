@@ -7,11 +7,11 @@ process_all_predictions
 """
 import os
 import csv
-from analysis_utility import find_rank_001_files, parse_structure_file, extract_pae
+from analysis_utility import find_rank_001_files, parse_structure_file, extract_pae, map_chains_and_residues
 from phosphorylation_handling import correct_cif_pae
-from iptm_visualisation import extract_iptm
+from iptm_visualisation import extract_iptm, create_iptm_matrix, visualize_iptm_matrix
 from process_pae import find_min_pae
-from repeatability_from_pdb import measure_repeatability
+from repeatability_from_pdb import measure_repeatability, find_confident_interface_residues
 from pdockq_calc import compute_pdockq
 
 def process_alphafold_prediction(folder_path, is_pdb=True, **kwargs):
@@ -33,10 +33,11 @@ def process_alphafold_prediction(folder_path, is_pdb=True, **kwargs):
     - min_pae (float): The minimum interface PAE value
     - pdockq (float): The calculated pDockQ score
     - ppv (float): The calculated PPV score
-    - num_consistent (int): The number of consistent predictions
-    - level_consistent (str): The level of consistency (average score of >50% consistent predictions)
+    - rop (int): The number of consistent predictions
+    - percent_rop (str): The level of consistency (average score of >10% consistent predictions)
+    - interface_size (int): The number of interface residue pairs found
     """
-    iptm, min_pae, pdockq, ppv, num_consistent, level_consistent = None, None, None, None, None, None
+    iptm, min_pae, pdockq, ppv, rop, percent_rop = None, None, None, None, None, None
     structure_file, json_file, log_file, _ ,_ = find_rank_001_files(folder_path)
     # Parse structure file
     if structure_file:
@@ -58,26 +59,33 @@ def process_alphafold_prediction(folder_path, is_pdb=True, **kwargs):
     # Calculate pdockq and ppv
     if structure_file and json_file:
         pdockq, ppv = compute_pdockq(structure_file, json_file)
+        
+        chain_residue_map = map_chains_and_residues(structure_model)
+        abs_res_lookup_dict = {(entry[0], entry[1]): entry[3] for entry in chain_residue_map}
+        residue_pairs = find_confident_interface_residues(structure_model, json_file, distance_cutoff=5, pae_cutoff=15, abs_res_lookup_dict=abs_res_lookup_dict, is_pdb=True, all_atom=True) 
+        interface_size = len(residue_pairs)
 
     # Measure repeatability with either provided or default parameters
     # get the pae_cutoff from the kwargs, if not provided, use the default value of 15
     pae_cutoff = kwargs.get('repeatability_params', {}).get('pae_cutoff', 15)
     if min_pae < pae_cutoff:
-        num_consistent, level_consistent = measure_repeatability(folder_path, **kwargs.get('repeatability_params', {}))
+        rop, percent_rop = measure_repeatability(folder_path, **kwargs.get('repeatability_params', {}))
     else:
-        num_consistent = 0
-        level_consistent = 'N/A'
-    
-    return iptm, min_pae, pdockq, ppv, num_consistent, level_consistent
+        rop = 0
+        percent_rop = 'N/A'
 
-def process_all_predictions(base_folder, output_path="alphafold_predictions_results.csv", **kwargs):
+    return iptm, min_pae, pdockq, ppv, rop, percent_rop, interface_size
+
+def process_all_predictions(base_folder, output_file="alphafold_predictions_results.csv", is_pdb=True, ipTM_graphic=True, **kwargs):
     """
     Process all AlphaFold predictions in the given base folder and write results to a CSV file.
     Expects base folder to contain protein pair folders, each of which contains domain pair folders.
 
     Parameters:
         - base_folder (str): Path to the base folder containing all protein pair folders.
-        - output_path (str): Path to the output CSV file. Default is "alphafold_predictions_results.csv".
+        - output_file (str): Output CSV file name. Default is "alphafold_predictions_results.csv".
+        - is_pdb (bool): Whether the structure file is in PDB format. Default is True.
+        - ipTM_graphic (bool): Whether to generate an ipTM matrix graphic. Default is True.
         - **kwargs: Additional function options can be specified as keyword arguments.
 
     Keyword Arguments (kwargs):
@@ -88,38 +96,65 @@ def process_all_predictions(base_folder, output_path="alphafold_predictions_resu
     Returns:
         - None, but writes the results to a CSV file.
     """
-    headers = ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain', 'ipTM', 'min_PAE', 'pDockQ', 'ppv', 'Num_Consistent', 'Level_Consistent']
-
+    headers = ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain', 'ipTM', 'min_PAE', 'pDockQ', 'ppv', 'ROP', 'percent_ROP', 'interface_size']
+    output_path = os.path.join(base_folder, output_file)
     with open(output_path, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(headers)  # Write the header row
 
         # Walk through the base folder containing all protein pair folders
-        for root, dirs, _ in os.walk(base_folder):
-            for dir in dirs:
-                if '+' in dir:  # This is a protein pair folder
-                    protein1, protein2 = dir.split('+')
+        for protein_pair_folder in os.listdir(base_folder):
+            protein_pair_path = os.path.join(base_folder, protein_pair_folder)
+            if os.path.isdir(protein_pair_path):
+                try:
+                    # Determine the separator to split the folder name
+                    if '+' in protein_pair_folder:
+                        protein1, protein2 = protein_pair_folder.split('+')
+                    else:
+                        protein1, protein2 = protein_pair_folder.split('_', 1)
                     print(f"Processing {protein1} and {protein2}...")
-                    domain_folder_path = os.path.join(root, dir, 'Results')
-                    
-                    # Process each domain pair folder within the 'Results' folder
-                    if os.path.exists(domain_folder_path):
-                        for domain_pair in os.listdir(domain_folder_path):
-                            if domain_pair.startswith(protein1) and '+' in domain_pair:
-                                domain_path = os.path.join(domain_folder_path, domain_pair)
-                                # Extract domain information
-                                protein1_domain, protein2_domain = domain_pair.split('+')
-                                #print(f"Processing {protein1_domain} and {protein2_domain}...")
-                                # Process the domain pair folder
-                                iptm, min_pae, pdockq, ppv, num_consistent, level_consistent = process_alphafold_prediction(domain_path, **kwargs)
 
-                                # Write results to CSV
-                                writer.writerow([protein1, protein2, protein1_domain, protein2_domain, iptm, min_pae, pdockq, ppv, num_consistent, level_consistent])
+                    # Look for domain pair folders either directly within the protein pair folder or within a 'Results' subfolder
+                    domain_folders = []
+                    for item in os.listdir(protein_pair_path):
+                        item_path = os.path.join(protein_pair_path, item)
+                        if os.path.isdir(item_path) and '+' in item:
+                            domain_folders.append(item_path)
+                        elif item == 'Results' and os.path.isdir(item_path):
+                            for sub_item in os.listdir(item_path):
+                                sub_item_path = os.path.join(item_path, sub_item)
+                                if os.path.isdir(sub_item_path) and '+' in sub_item:
+                                    domain_folders.append(sub_item_path)
+
+                    # Process each domain pair folder identified
+                    for domain_path in domain_folders:
+                        try:
+                            domain_pair = os.path.basename(domain_path)
+                            protein1_domain, protein2_domain = domain_pair.split('+')
+                            # Process the domain pair folder
+                            iptm, min_pae, pdockq, ppv, rop, percent_rop, interface_size = process_alphafold_prediction(domain_path, is_pdb, **kwargs)
+
+                            # Write results to CSV
+                            writer.writerow([protein1, protein2, protein1_domain, protein2_domain, iptm, min_pae, pdockq, ppv, rop, percent_rop, interface_size])
+                        except Exception as e:
+                            print(f"Error processing domain pair {domain_pair}: {e}")
+
+                    # Optionally generate the ipTM matrix if is_pdb is True
+                    if ipTM_graphic and is_pdb:
+                        try:
+                            iptm_matrix = create_iptm_matrix(protein_pair_path)
+                            png_file_path = os.path.join(protein_pair_path, 'iptm_matrix.png')
+                            visualize_iptm_matrix(iptm_matrix, png_file_path)
+                        except Exception as e:
+                            print(f"Error generating ipTM matrix for {protein1} and {protein2}: {e}")
+                
+                except Exception as e:
+                    print(f"Error processing protein pair {protein1} and {protein2}: {e}")
 
 ####################################################################################################
 # Example usage
 #base_folder = "../../../../../Dropbox/2022.10.20_Drosophila_Version_1"
-#process_all_predictions(base_folder)
+#process_all_predictions(base_folder, output_file="alphafold_predictions_results.csv", is_pdb=True, ipTM_graphic=False)
 
 # For testing completion bias
 # path = "data/CENPJ_PALB2/CENPJ_D5+PALB2_D5"
