@@ -150,6 +150,14 @@ def extract_pae(json_file):
     """
     with open(json_file, 'r') as file:
         data = json.load(file)
-    pae = data.get('pae', data.get('predicted_aligned_error', 'Error: PAE not found'))
+    if isinstance(data, list):
+        # If data is a list, extract the first element
+        pae = data[0].get('pae', data[0].get('predicted_aligned_error', 'Error: PAE not found'))
+    elif isinstance(data, dict):
+        # If data is a dictionary
+        pae = data.get('pae', data.get('predicted_aligned_error', 'Error: PAE not found'))
+    else:
+        raise ValueError("Unexpected data format in JSON file")
+        
     pae_matrix = np.array(pae)
     return pae_matrix
