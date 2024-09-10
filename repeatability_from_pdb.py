@@ -37,7 +37,7 @@ def get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all
     
     Returns:
         - residue_pairs (list): List of residue pairs that are within the distance cutoff,
-          where each pair is a tuple of residue numbers)
+          where each pair is a tuple of residue numbers
     """
     chains = list(structure_model.get_chains())
     # Get mapping of residues to absolute residue ids
@@ -137,9 +137,9 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
         - model_consistency_scores (list): List of tuples containing the rank number of
           each model and the proportion of confident pairs from the top model which are
           also close in the current model
-        - num_consistent_models (int): Number of models with >50% consistency in interface
+        - num_consistent_models (int): Number of models with >25% consistency in interface
           residue positions
-        - average_consistency_level (float): Average consistency level of models with >50%
+        - average_consistency_level (float): Average consistency level of models with >25%
           consistency
         - res_pairs (list): List of residue pairs that are consistently close across models,
           where each pair is a tuple of chain ID and residue number
@@ -173,17 +173,17 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
         model_res_pairs = get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom)
         # Calculate proportion of confident pairs from top model which are also close in current model
         score = sum(1 for (res1, res2) in confident_pairs if (res1, res2) in model_res_pairs) / len(confident_pairs) if confident_pairs else 0
-        if score > 0.5:
+        if score > 0.25:
             model_res_pairs_set = set(model_res_pairs)
             consistent_res_pairs.intersection_update(model_res_pairs_set)
         model_consistency_scores.append((rank_number, score))
 
     # Sort scores by model rank number
     sorted_model_consistency_scores = sorted(model_consistency_scores, key=lambda x: x[0])
-    # Calculate number of models with >50% consistency and average consistency level within these
+    # Calculate number of models with >25% consistency and average consistency level within these
     # combination of these gives best indication of how well the interface is conserved across models - allows differentiation between all models having ok consistency vs most models are very good but a few are bad
-    num_consistent_models = sum(1 for _, score in sorted_model_consistency_scores if score > 0.5)
-    average_consistency_level = sum(score for _, score in sorted_model_consistency_scores if score > 0.5) / num_consistent_models if num_consistent_models else 0
+    num_consistent_models = sum(1 for _, score in sorted_model_consistency_scores if score > 0.25)
+    average_consistency_level = sum(score for _, score in sorted_model_consistency_scores if score > 0.25) / num_consistent_models if num_consistent_models else 0
     
     # Sort consistent pairs and convert back to chain specific numbering
     inv_abs_res_lookup_dict = {v: k for k, v in abs_res_lookup_dict.items()}
@@ -202,7 +202,7 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
     """
     Measure the similarity of confident interfaces across multiple models.
 
-    Outputs the number of models with >50% consistency in interface residue positions
+    Outputs the number of models with >25% consistency in interface residue positions
     and the average consistency level of these models - combining these gives the best
     indication of how well the interface is conserved across models, as it allows
     differentiation between all models having some consistency vs most models being very
@@ -218,9 +218,9 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
           distance, False if only CA atoms should be considered
 
     Returns:
-        - num_consistent (int): Number of models with >50% consistency in interface
+        - num_consistent (int): Number of models with >25% consistency in interface
           residue positions
-        - level_consistent (float): Average consistency level of models with >50%
+        - level_consistent (float): Average consistency level of models with >25%
           consistency
     """
     # Find the top ranked predicted structure file and check if it is in PDB or CIF format
@@ -242,10 +242,10 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
     if confident_pairs:
         #print(f"Found {len(confident_pairs)} confident interface residue pairs in the top ranked model.")
         all_scores, num_consistent, level_consistent, consistent_pairs = check_distances_across_models(folder_path, confident_pairs, distance_cutoff, abs_res_lookup_dict, is_pdb, all_atom)
-        #print(f"Individual model scores: {all_scores}")
-        #print(f"Num models >50% consistent: {num_consistent} out of {len(all_scores)} total models.")
+        print(f"Individual model scores: {all_scores}")
+        #print(f"Num models >25% consistent: {num_consistent} out of {len(all_scores)} total models.")
         #print(f"Avg consistency for consistent models: {level_consistent:.2f}")
-        #print(f"Consistent pairs: {consistent_pairs}")
+        print(f"Consistent pairs: {consistent_pairs}")
 
     else:
         all_scores, num_consistent, level_consistent = [], 0, 0
