@@ -1,7 +1,7 @@
 """
 Functions to extract and visualize top model iptm values
 
-All functons except extract_iptm are desiged only for use with AF2 - as these work
+All functions except extract_iptm are desiged only for use with AF2 - as these work
 with protein pair folders containing domain pair folders, and AF3 is expected to
 only use FL protein pairs
 
@@ -17,6 +17,7 @@ import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
+from analysis_utility import find_rank_001_files
 
 
 def extract_iptm(file_path):
@@ -78,10 +79,10 @@ def sort_domains(domain_list):
 def create_iptm_matrix(base_folder):
     """
     Create a matrix of the highest iptm values for each domain pair.
-    
+
     Parameters:
-        - base_folder (str): The path to the folder containing the log.txt files.
-        
+        - base_folder (str): The path to the folder containing the fragment folders.
+
     Returns:
         - pd.DataFrame: A DataFrame containing the iptm values for each domain pair.
     """
@@ -89,20 +90,28 @@ def create_iptm_matrix(base_folder):
     protein1_domains = set()
     protein2_domains = set()
 
-    for root, _, files in os.walk(base_folder):
-        if 'log.txt' in files:
-            folder_name = os.path.basename(root)
-            protein1_domain, protein2_domain = folder_name.split('+')
-            protein1_domains.add(protein1_domain)
-            protein2_domains.add(protein2_domain)
-            highest_iptm = extract_iptm(os.path.join(root, 'log.txt'))
-            domain_pairs[(protein1_domain, protein2_domain)] = highest_iptm
+    # Iterate through each folder directly within the base folder
+    for fragment_folder in os.listdir(base_folder):
+        fragment_folder_path = os.path.join(base_folder, fragment_folder)
+        if os.path.isdir(fragment_folder_path):
+            # Use find_rank_001_files to locate the log.txt file
+            _, _, log_file, _, _ = find_rank_001_files(fragment_folder_path)
+            if log_file:
+                folder_name = os.path.basename(fragment_folder_path)
+                protein1_domain, protein2_domain = folder_name.split('+')
+                protein1_domains.add(protein1_domain)
+                protein2_domains.add(protein2_domain)
+                highest_iptm = extract_iptm(log_file)
+                domain_pairs[(protein1_domain, protein2_domain)] = highest_iptm
 
     # Sort the domain lists
     protein1_domains = sort_domains(list(protein1_domains))
     protein2_domains = sort_domains(list(protein2_domains))
 
+    # Initialize the DataFrame with zeroes
     matrix = pd.DataFrame(index=protein2_domains, columns=protein1_domains).fillna(0)
+    
+    # Populate the DataFrame with iptm values
     for (protein1_domain, protein2_domain), iptm_value in domain_pairs.items():
         matrix.at[protein2_domain, protein1_domain] = iptm_value
 
