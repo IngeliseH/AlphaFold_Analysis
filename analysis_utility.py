@@ -128,14 +128,7 @@ def determine_chain_lengths(model):
     Returns:
         - list: A list of chain lengths in the order they appear.
     """
-    chain_lengths = []
-    # Iterate through each chain in the model
-    for chain in model:
-        count = 0
-        for _ in chain.get_residues():
-            count += 1
-        chain_lengths.append(count)  # Append the count of residues in the chain
-
+    chain_lengths = [len(list(chain.get_residues())) for chain in model]
     return chain_lengths
 
 def extract_pae(json_file):
