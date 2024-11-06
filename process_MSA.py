@@ -14,11 +14,12 @@ Functions:
     - process_alignment(MSA_file, PDB_file)
 """
 from Bio import AlignIO
-from Bio.PDB import PDBParser, PDBIO
+from Bio.PDB import PDBIO, Model
 from Bio.Align import MultipleSeqAlignment
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Align import substitution_matrices
+from pathlib import Path
 import numpy as np
 from analysis_utility import parse_structure_file, determine_chain_lengths
 
@@ -82,7 +83,7 @@ def calculate_residue_similarity_to_query(alignment, query_seq, blosum):
     """
     seq_length = len(query_seq)
     scores = [0.0] * seq_length
-    num_sequences = len(alignment) - 1  # Exclude the query sequence
+    #num_sequences = len(alignment) - 1  # Exclude the query sequence
 
     for i in range(seq_length):
         aa_query = query_seq[i]
@@ -115,7 +116,7 @@ def modify_bfactors(protein_model, residue_similarity_scores_list, output_name):
     Parameters:
         - protein_model (Model): The protein structure model.
         - residue_similarity_scores_list (list): List of similarity scores for each residue.
-        - output_name (str): The name of the output PDB file.
+        - output_name (str or Path): The name of the output PDB file.
     Returns:
         None, but saves the modified PDB file.
     """
@@ -137,46 +138,55 @@ def modify_bfactors(protein_model, residue_similarity_scores_list, output_name):
     # Save the modified structure
     io = PDBIO()
     io.set_structure(protein_model)
+
+    # Ensure output_name is a string
+    if isinstance(output_name, Path):
+        output_name = str(output_name)
     io.save(output_name)
 
-def process_alignment(MSA_file, PDB_file):
+def process_alignment(MSA_file, structure_input):
     """
-    Takes an alignment file in fasta form, using the first sequence as the query
-    sequence. Calculates average percent similarity of sequences to query for each protein, 
-    then calculates similarity scores for each residue in the query sequence across all
-    aligned sequences, using the best matching BLOSUM substitution matrix. Modifies the
-    B-factor column of the PDB file to store the residue conservation scores.
-
+    Processes an alignment file and calculates residue conservation scores.
+    The structure input can be either a file path or a protein model object.
+    
     Parameters:
         - MSA_file (str): The path to the alignment file in fasta format.
-        - PDB_file (str): The path to the PDB file
+        - structure_input (str, Path  or Bio.PDB.Model): Either a file path to the PDB file or a protein model object.
 
     Returns:
-        None, but saves the modified PDB file with conservation scores in the B-factor column.
+        - residue_similarity_scores_list (list): List of conservation scores for each protein.
+        - start_positions (list): Starting positions of each protein in the concatenated sequence.
     """
+    # Read the aligned sequences
     aligned_sequences = AlignIO.read(MSA_file, "fasta")
     
     # Query sequence is the first one in the alignment
     query_seq_record = aligned_sequences[0]
     query_seq = query_seq_record.seq
+    if isinstance(structure_input, str) or isinstance(structure_input, Path):
+        # Treat structure_input as a file path and parse the structure file
+        protein_model = parse_structure_file(structure_input)
+    elif isinstance(structure_input, Model.Model):
+        # Treat structure_input as an already loaded protein model object
+        protein_model = structure_input
+    else:
+        raise TypeError("structure_input must be either a file path (str or Path) or a protein model object (Bio.PDB.Model.Model).")
 
-    # Parse the structure file
-    protein_model = parse_structure_file(PDB_file)
 
+    # Remove gap columns based on the query sequence
     gapless_alignment = remove_gap_columns(aligned_sequences, query_seq)
 
+    # Determine chain lengths and starting positions
     protein_lengths = determine_chain_lengths(protein_model)  # Returns a list of lengths
-
     num_proteins = len(protein_lengths)
+    start_positions = [0]
+    for length in protein_lengths:
+        start_positions.append(start_positions[-1] + length)
+
+    # Split the alignment into separate proteins
     protein_seqs = [[] for _ in range(num_proteins)]
     query_seqs = [None for _ in range(num_proteins)]
     first_sequence = True
-
-    # Calculate start and end positions for each protein region
-    start_positions = [0]
-    for length in protein_lengths:
-        # Adjust the index for zero-based indexing in Python
-        start_positions.append(start_positions[-1] + length)
 
     for seq_record in gapless_alignment:
         seq = seq_record.seq
@@ -196,8 +206,8 @@ def process_alignment(MSA_file, PDB_file):
             if set(region) - set('-'):
                 protein_seqs[i].append(SeqRecord(Seq(str(region)), id=seq_record.id))
 
+    # Calculate conservation scores for each protein
     residue_similarity_scores_list = []
-
     for i in range(num_proteins):
         alignment = MultipleSeqAlignment(protein_seqs[i])
         avg_similarity = np.mean(calculate_percent_similarity(alignment))
@@ -214,9 +224,81 @@ def process_alignment(MSA_file, PDB_file):
         scores = calculate_residue_similarity_to_query(alignment, query_seqs[i], blosum)
         residue_similarity_scores_list.append(scores)
 
-    # Assign B-factors (similarity scores)
-    output_name = PDB_file.split(".")[0] + "_conservation.pdb"
-    modify_bfactors(protein_model, residue_similarity_scores_list, output_name)
+    return residue_similarity_scores_list, start_positions
 
-# Example usage
-process_alignment("data/MSA_analysis/Ana2_D2_Sak_D1.fasta", "data/MSA_analysis/Ana2_D2_Sak_D1_unrelaxed_rank_1_model_2.pdb")
+def calculate_interface_conservation_score(residue_similarity_scores_list, interface_residues, abs_res_reverse_lookup, start_positions):
+    """
+    Calculates the overall interface conservation score by taking the minimum conservation
+    score for each interface residue pair and averaging these minimums.
+
+    Parameters:
+        - residue_similarity_scores_list (list): List of conservation scores for each protein.
+        - interface_residues (list): List of residue pairs (tuples) representing interface contacts.
+                                     Each tuple contains absolute residue indices (starting from 1).
+        - abs_res_reverse_lookup (dict): Mapping of absolute residue indices to (chain_id, res_num).
+        - start_positions (list): Starting positions of each protein in the concatenated sequence.
+
+    Returns:
+        - overall_conservation_score (float): The average of minimum conservation scores for interface residue pairs.
+    """
+    # Create a mapping from (chain_id, res_num) to conservation score index
+    residue_index_mapping = {}
+    pos_counter = 0
+    for chain_idx, scores in enumerate(residue_similarity_scores_list):
+        chain_length = len(scores)
+        for res_idx in range(chain_length):
+            abs_res_idx = start_positions[chain_idx] + res_idx + 1  # +1 to adjust to 1-based indexing
+            chain_id, res_num = abs_res_reverse_lookup.get(abs_res_idx, (None, None))
+            if chain_id is not None:
+                residue_index_mapping[(chain_id, res_num)] = (chain_idx, res_idx)
+        pos_counter += chain_length
+
+    # Collect minimum conservation scores for each interface residue pair
+    min_conservation_scores = []
+    for res1_abs, res2_abs in interface_residues:
+        # Map absolute residue indices back to (chain_id, res_num)
+        res1_info = abs_res_reverse_lookup.get(res1_abs)
+        res2_info = abs_res_reverse_lookup.get(res2_abs)
+
+        if res1_info and res2_info:
+            res1_chain_id, res1_res_num = res1_info
+            res2_chain_id, res2_res_num = res2_info
+
+            res1_mapping = residue_index_mapping.get((res1_chain_id, res1_res_num))
+            res2_mapping = residue_index_mapping.get((res2_chain_id, res2_res_num))
+
+            if res1_mapping and res2_mapping:
+                res1_chain_idx, res1_idx = res1_mapping
+                res2_chain_idx, res2_idx = res2_mapping
+
+                # Get conservation scores
+                score1 = residue_similarity_scores_list[res1_chain_idx][res1_idx]
+                score2 = residue_similarity_scores_list[res2_chain_idx][res2_idx]
+
+                # Take the minimum score
+                min_score = min(score1, score2)
+                min_conservation_scores.append(min_score)
+
+    # Calculate the overall conservation score
+    if min_conservation_scores:
+        overall_conservation_score = np.mean(min_conservation_scores)
+    else:
+        overall_conservation_score = None  # No interface residues found
+
+    return overall_conservation_score
+
+# example usage
+#process_alignment("data/MSA_analysis/GCP5_F1_Mzt1_F1.fasta", "data/MSA_analysis/GCP5_F1_Mzt1_F1_unrelaxed_rank_001_alphafold2_multimer_v3_model_4_seed_000.pdb")
+
+#from analysis_utility import map_chains_and_residues
+#from repeatability_from_pdb import find_confident_interface_residues
+#structure_model = parse_structure_file("data/MSA_analysis/GCP5_F1_Mzt1_F1_unrelaxed_rank_001_alphafold2_multimer_v3_model_4_seed_000.pdb")
+#residue_similarity_scores_list, start_positions = process_alignment("data/MSA_analysis/GCP5_F1_Mzt1_F1.fasta", structure_model)
+#chain_residue_map = map_chains_and_residues(structure_model)
+# Create mappings between absolute residue indices and (chain_id, res_num)
+#abs_res_lookup_dict = {(entry[0], entry[1]): entry[3] for entry in chain_residue_map}
+#abs_res_reverse_lookup = {entry[3]: (entry[0], entry[1]) for entry in chain_residue_map}
+#residue_pairs = find_confident_interface_residues(structure_model, "data/MSA_analysis/GCP5_F1_Mzt1_F1_scores_rank_001_alphafold2_multimer_v3_model_4_seed_000.json", distance_cutoff=5, pae_cutoff=15, abs_res_lookup_dict=abs_res_lookup_dict, is_pdb=True, all_atom=True)
+#interface_size = len(residue_pairs)
+# Compute conservation score using the new function
+#conservation_score = calculate_interface_conservation_score(residue_similarity_scores_list, residue_pairs, abs_res_reverse_lookup, start_positions)
