@@ -70,7 +70,7 @@ def collect_model_data(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, all_a
 
         # Get interprotein residue pairs within distance cutoff (all_pairs)
         all_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom))
-        confident_pairs = find_confident_pairs(pae_data, pae_cutoff, all_pairs)
+        confident_pairs = find_confident_pairs(all_pairs, pae_data, pae_cutoff)
 
         # Store model data
         model_data.append({
@@ -96,6 +96,7 @@ def select_best_model(model_data):
     # Identify the top-ranked model (the first in the list)
     top_model = model_data[0]
     top_model_rank = top_model['model_rank']
+    top_model['min_pae'] = model_dictionary_min_pae(top_model)
 
     models_with_confident_pairs = [m for m in model_data if m['confident_pairs']]
 
@@ -112,15 +113,14 @@ def select_best_model(model_data):
     # If multiple models have equal highest ROP, pick the original highest-ranked one
     best_model = min(models_with_max_rop, key=lambda m: abs(int(m['model_rank']) - int(top_model_rank)))
 
-    # Now compute min_pae for top_model and best_model
-    top_model_min_pae = model_dictionary_min_pae(top_model)
-    best_model_min_pae = model_dictionary_min_pae(best_model)
+    # Now compute min_pae for best_model
+    best_model['min_pae'] = model_dictionary_min_pae(best_model)
 
     # Check if picking this model leads to a significant rise in minPAE
-    min_pae_increase = best_model_min_pae - top_model_min_pae
+    min_pae_increase = best_model['min_pae'] - top_model['min_pae']
 
     # Compute the threshold for significant rise in minPAE
-    min_pae_threshold = max(3, int(np.ceil(0.3 * top_model_min_pae)))
+    min_pae_threshold = max(3, int(np.ceil(0.3 * top_model['min_pae'])))
 
     if min_pae_increase > min_pae_threshold:
         # Significant rise in minPAE; keep the original top-ranked model
@@ -129,9 +129,6 @@ def select_best_model(model_data):
     #else:
         #if best_model != top_model:
             #print(f"Model {best_model['model_rank']} selected, ROP {best_model['rop_score']}, vs rank1 {top_model['rop_score']}.")
-
-    # Update min_pae in best_model data
-    best_model['min_pae'] = best_model_min_pae
 
     return best_model
 
@@ -181,6 +178,8 @@ def compute_additional_metrics(model):
             residues_by_protein['Protein1'].add(int(res_num2))
             residues_by_protein['Protein2'].add(int(res_num1))
     def format_ranges(numbers):
+        if not numbers:
+            return ""  # or return "None" if you prefer to indicate explicitly that there are no residues
         sorted_nums = sorted(numbers)
         ranges = []
         start = end = sorted_nums[0]
