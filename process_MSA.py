@@ -10,15 +10,17 @@ Functions:
     - remove_gap_columns(aligned_sequences, query_seq)
     - calculate_percent_similarity(alignment)
     - calculate_residue_similarity_to_query(alignment, query_seq, blosum)
-    - modify_bfactors(protein_model, residue_similarity_scores_list, protein_lengths, output_name)
     - process_alignment(MSA_file, PDB_file)
+
+TODO: - fix issue where some predictions fail wth index errors
+      - move reformatting internally, remove external dependency (reformat.pl) - this
+        is slow and resaves msa as fasta file, meaning unecessary file i/o
 """
 from Bio import AlignIO
-from Bio.PDB import PDBIO, Model
-from Bio.Align import MultipleSeqAlignment
+from Bio.PDB import Model
+from Bio.Align import MultipleSeqAlignment, substitution_matrices
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-from Bio.Align import substitution_matrices
 from pathlib import Path
 import numpy as np
 from analysis_utility import parse_structure_file, determine_chain_lengths
@@ -108,41 +110,6 @@ def calculate_residue_similarity_to_query(alignment, query_seq, blosum):
             scores[i] = 0.0  # No valid comparisons at this position
 
     return scores
-
-def modify_bfactors(protein_model, residue_similarity_scores_list, output_name):
-    """
-    Modifies the B-factor column of the PDB file to store the residue similarity scores.
-
-    Parameters:
-        - protein_model (Model): The protein structure model.
-        - residue_similarity_scores_list (list): List of similarity scores for each residue.
-        - output_name (str or Path): The name of the output PDB file.
-    Returns:
-        None, but saves the modified PDB file.
-    """
-    # Flatten the residue similarity scores into a single list
-    all_scores = []
-    for scores in residue_similarity_scores_list:
-        all_scores.extend(scores)
-    
-    residue_counter = 0
-    for chain in protein_model.get_chains():
-        for residue in chain.get_residues():
-            for atom in residue.get_atoms():
-                if residue_counter < len(all_scores):
-                    atom.bfactor = all_scores[residue_counter]
-                else:
-                    atom.bfactor = 0.0  # Default B-factor if out of scores
-            residue_counter += 1
-    
-    # Save the modified structure
-    io = PDBIO()
-    io.set_structure(protein_model)
-
-    # Ensure output_name is a string
-    if isinstance(output_name, Path):
-        output_name = str(output_name)
-    io.save(output_name)
 
 def process_alignment(MSA_file, structure_input):
     """
@@ -288,11 +255,17 @@ def calculate_interface_conservation_score(residue_similarity_scores_list, inter
     return overall_conservation_score
 
 # example usage
-#process_alignment("data/MSA_analysis/GCP5_F1_Mzt1_F1.fasta", "data/MSA_analysis/GCP5_F1_Mzt1_F1_unrelaxed_rank_001_alphafold2_multimer_v3_model_4_seed_000.pdb")
-
 #from analysis_utility import map_chains_and_residues
 #from repeatability_from_pdb import find_confident_interface_residues
 #structure_model = parse_structure_file("data/MSA_analysis/GCP5_F1_Mzt1_F1_unrelaxed_rank_001_alphafold2_multimer_v3_model_4_seed_000.pdb")
+
+# Use reformat.pl to convert .a3m to FASTA
+#folder_path = dummy_path  # Path to the folder containing the MSA file
+#a3m_file = os.path.join(folder_path, msa_files[0])  # Take the first .a3m file found
+#fasta_file = os.path.join(folder_path, msa_files[0].replace('.a3m', '.fasta'))
+#reformat_command = f"perl reformat.pl {a3m_file} {fasta_file}"
+#subprocess.run(reformat_command, shell=True, check=True)
+
 #residue_similarity_scores_list, start_positions = process_alignment("data/MSA_analysis/GCP5_F1_Mzt1_F1.fasta", structure_model)
 #chain_residue_map = map_chains_and_residues(structure_model)
 # Create mappings between absolute residue indices and (chain_id, res_num)
@@ -302,3 +275,7 @@ def calculate_interface_conservation_score(residue_similarity_scores_list, inter
 #interface_size = len(residue_pairs)
 # Compute conservation score using the new function
 #conservation_score = calculate_interface_conservation_score(residue_similarity_scores_list, residue_pairs, abs_res_reverse_lookup, start_positions)
+
+# save conservation scores to PDB file
+#from analysis_utility import modify_bfactors
+#modify_bfactors(structure_model, residue_similarity_scores_list, "data/MSA_analysis/GCP5_F1_Mzt1_F1_unrelaxed_rank_001_alphafold2_multimer_v3_model_4_seed_000_conservation.pdb")

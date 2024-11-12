@@ -8,12 +8,12 @@ parse_structure_file
 map_chains_and_residues
 determine_chain_lengths
 extract_pae
+modify_bfactors
 """
 import json
 import numpy as np
 from pathlib import Path
-from Bio.PDB import PDBParser
-from Bio.PDB import MMCIFParser
+from Bio.PDB import PDBParser, MMCIFParser, PDBIO
 
 def find_rank_001_files(folder_path, af3=False):
     """
@@ -82,10 +82,16 @@ def parse_structure_file(file_path, is_pdb=True):
     Parses the structure file (PDB or CIF) and returns the model.
     
     Parameters:
-        - file_path (str): Path to the structure file.
+        - file_path (str or Path): Path to the structure file.
         - is_pdb (bool): Whether the file is in PDB format (default: True).
+
+    Returns:
+        - model: The first model in the structure.
     """
     parser = PDBParser() if is_pdb else MMCIFParser()
+    # Convert file_path to string if it's a Path object
+    if isinstance(file_path, Path):
+        file_path = str(file_path)
     structure = parser.get_structure('protein', file_path)
     model = structure[0]
     return model
@@ -154,3 +160,39 @@ def extract_pae(json_file):
         
     pae_matrix = np.array(pae)
     return pae_matrix
+
+def modify_bfactors(protein_model, residue_scores_list, output, default=0.0):
+    """
+    Modifies the B-factor column of a PDB file to store custom scores.
+
+    Parameters:
+        - protein_model (Model): The protein structure model.
+        - residue_scores_list (list): List of scores for each residue.
+        - output (str or Path): Name + file path for the output PDB file.
+        - default (float): Default score to use if the list is shorter than the number of residues.
+    Returns:
+        None, but saves the modified PDB file.
+    """
+    # Flatten the residue similarity scores into a single list
+    all_scores = []
+    for scores in residue_scores_list:
+        all_scores.extend(scores)
+    
+    residue_counter = 0
+    for chain in protein_model.get_chains():
+        for residue in chain.get_residues():
+            for atom in residue.get_atoms():
+                if residue_counter < len(all_scores):
+                    atom.bfactor = all_scores[residue_counter]
+                else:
+                    atom.bfactor = default  # Default B-factor if out of scores
+            residue_counter += 1
+    
+    # Save the modified structure
+    io = PDBIO()
+    io.set_structure(protein_model)
+
+    # Ensure output_name is a string
+    if isinstance(output, Path):
+        output = str(output)
+    io.save(output)
