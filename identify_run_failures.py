@@ -1,5 +1,13 @@
+"""
+Script to identify missing structure files and analyses in a directory containing protein pair folders.
+
+Functions:
+    - find_missing_structure_files
+    - find_missing_analyses
+"""
 import os
 import csv
+import pandas as pd
 from analysis_utility import find_rank_001_files
 
 def find_missing_structure_files(base_folder, **kwargs):
@@ -86,7 +94,51 @@ def find_missing_structure_files(base_folder, **kwargs):
 
     return missing_files
 
+def find_missing_analyses(csv_path, base_folder):
+    """
+    Identify predictions that are present in the folder but missing from the CSV file.
+
+    Parameters:
+        - csv_path (str): Path to the CSV file containing analyzed predictions.
+        - base_directory (str): Path to the base directory containing the folders for predictions.
+
+    Returns:
+        - missing_in_csv (set): A set of pairs present in folders but missing from the CSV file.
+    """
+    # Load the CSV file
+    csv_data = pd.read_csv(csv_path)
+
+    # Extract protein pairs and domain pairs from the CSV file
+    csv_pairs = set(
+        csv_data.apply(lambda row: f"{row[0]}_{row[1]}/{row[2]}+{row[3]}", axis=1)
+    )
+
+    # Walk through the base directory to find existing domain pairs
+    folder_pairs = set()
+    for root, dirs, files in os.walk(base_folder):
+        for folder in dirs:
+            # Check if the path format matches protein/domain pairs structure
+            if '+' in folder and '_' in root:
+                protein_pair = os.path.basename(root)
+                domain_pair = folder
+                full_pair = f"{protein_pair}/{domain_pair}"
+                folder_pairs.add(full_pair)
+
+    # Identify missing pairs
+    missing_in_csv = folder_pairs - csv_pairs
+
+    # Output results
+    print("Pairs in folders but missing from CSV:")
+    for pair in missing_in_csv:
+        print(pair)
+    
+    return missing_in_csv
+
 # Example usage
 #base_folder = '/Users/poppy/Dropbox/2024.08.14_centriole_core_fragmented_proteins_fastas'
+#base_folder = '/Users/poppy/Dropbox/2024.10.11_PCM_run_failures'
+#csv_path = '/Users/poppy/Dropbox/PCM/PCM_alphafold_predictions_results_ROP25.csv'
 #missing_files = find_missing_structure_files(base_folder, save_to_csv=True)
 #print(f"Missing files: {missing_files}")
+#missing_analyses = find_missing_analyses(csv_path, base_folder)
+#print(f"Missing analyses: {missing_analyses}")
