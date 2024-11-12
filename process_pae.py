@@ -1,9 +1,14 @@
 """
-Process PAE matrix
+Functions for processing PAE data for AlphaFold models.
 
 Functions:
 find_min_pae
 visualize_pae_matrix
+compute_average_interface_pae
+compute_pae_evenness
+
+FASTER METHOD FOR DICTIONARY OBJECTS WHERE INTERFACE PAIRS ARE ALREADY FOUND:
+model_dictionary_min_pae
 """
 import numpy as np
 import pandas as pd
@@ -21,7 +26,8 @@ def find_min_pae(structure_model, pae_matrix):
 
     Returns:
         - tuple or dict: If only two chains, returns a tuple (min PAE, position).
-          Otherwise, returns a dictionary of minimum interprotein PAE values and their positions for each chain pair.
+          Otherwise, returns a dictionary of minimum interprotein PAE values and their positions for
+          each chain pair.
     """
     chain_lengths = determine_chain_lengths(structure_model)
     if len(chain_lengths) < 2:
@@ -31,42 +37,28 @@ def find_min_pae(structure_model, pae_matrix):
     cumulative_lengths = [0] + list(np.cumsum(chain_lengths))
     
     # Iterate over each pair of chains
-    for i in range(len(chain_lengths)):
+    for i in range(len(chain_lengths)-1):
         for j in range(i + 1, len(chain_lengths)):
-            start_i = cumulative_lengths[i]
-            end_i = cumulative_lengths[i + 1]
-            start_j = cumulative_lengths[j]
-            end_j = cumulative_lengths[j + 1]
+            start_i, end_i = cumulative_lengths[i], cumulative_lengths[i + 1]
+            start_j, end_j = cumulative_lengths[j], cumulative_lengths[j + 1]
 
             # Extract PAE between chain i and j
-            interprotein_pae1 = pae_matrix[start_i:end_i, start_j:end_j]
-            interprotein_pae2 = pae_matrix[start_j:end_j, start_i:end_i]
-            min_pae1 = np.min(interprotein_pae1)
-            min_pos1 = np.unravel_index(np.argmin(interprotein_pae1), interprotein_pae1.shape)
+            interprotein_pae = np.concatenate((pae_matrix[start_i:end_i, start_j:end_j],
+                                               pae_matrix[start_j:end_j, start_i:end_i].T))
+            min_pae = np.min(interprotein_pae)
+            min_pos = np.unravel_index(np.argmin(interprotein_pae), interprotein_pae.shape)
 
-            min_pae2 = np.min(interprotein_pae2)
-            min_pos2 = np.unravel_index(np.argmin(interprotein_pae2), interprotein_pae2.shape)
+            # If only two chains, return the result as a tuple
+            if len(chain_lengths) == 2:
+                return min_pae, min_pos
 
-            if min_pae1 < min_pae2:
-                min_pae = min_pae1
-                min_pos = min_pos1
-            else:
-                min_pae = min_pae2
-                min_pos = min_pos2
-
-            # Store result in a dictionary
+            # otherwise, store result in a dictionary
             min_pae_results[f"Chain {i+1} to Chain {j+1}"] = {
                 'Min PAE': min_pae,
                 'Position': min_pos
             }
 
-    # Simplify output if there are only two chains
-    if len(chain_lengths) == 2:
-        only_key = next(iter(min_pae_results))  # There will be only one key
-        return min_pae_results[only_key]['Min PAE'], min_pae_results[only_key]['Position']
-
     return min_pae_results
-
 
 def visualize_pae_matrix(pae_matrix, chain_lengths=None, cmap="Spectral", interval=50, pae_cutoff = 30):
     """
@@ -137,6 +129,74 @@ def visualize_pae_matrix(pae_matrix, chain_lengths=None, cmap="Spectral", interv
     plt.tight_layout()
 
     plt.show()
+
+def compute_average_interface_pae(pae_matrix, confident_pairs):
+    """
+    Computes the average PAE value for the confident interface residues.
+
+    Parameters:
+        - pae_matrix (list of lists): The PAE matrix extracted from the JSON file.
+        - confident_pairs (list): List of tuples representing residue pairs.
+
+    Returns:
+        - average_pae (float): The average PAE value of the interface residues.
+    """
+    pae_values = [
+        pae_matrix[res1][res2]
+        for res1, res2 in confident_pairs
+        if 0 <= res1 < len(pae_matrix) and 0 <= res2 < len(pae_matrix)
+    ] + [
+        pae_matrix[res2][res1]
+        for res1, res2 in confident_pairs
+        if 0 <= res2 < len(pae_matrix) and 0 <= res1 < len(pae_matrix)
+    ]
+
+    return np.mean(pae_values) if pae_values else None
+
+def compute_pae_evenness(pae_matrix, confident_pairs, max_pae_value=31.0):
+    """
+    Computes PAE evenness by measuring the symmetry between values
+    in pae_matrix[res1][res2] and pae_matrix[res2][res1].
+
+    Parameters:
+        - pae_matrix (list of lists): The PAE matrix extracted from the JSON file.
+        - confident_pairs (list): List of tuples representing residue pairs.
+        - max_pae_value (float): Maximum possible PAE value, for normalization.
+
+    Returns:
+        - pae_evenness (float): High if values for [res1][res2] are similar to [res2][res1].
+    """
+    normalized_diffs = [
+        abs(pae_matrix[res1][res2] - pae_matrix[res2][res1]) / max_pae_value
+        for res1, res2 in confident_pairs
+        if 0 <= res1 < len(pae_matrix) and 0 <= res2 < len(pae_matrix)
+    ]
+    return 1 - np.mean(normalized_diffs) if normalized_diffs else 1.0
+
+# Working with proteins as model dictionaries with PAE matrix as an associated key
+def model_dictionary_min_pae(model):
+    """
+    Faster method to find the minimum PAE value between 2 proteins, when interface residue pairs
+    have already been found, and data is stored in a model dictionary with all_pairs and pae_data
+    as associated attributes.
+
+    Parameters:
+        - model (dict): A dictionary containing interface residue pairs in an 'all_pairs' key
+          and PAE data in a 'pae_data' key.
+    
+    Returns:
+        - float: The minimum PAE value between all pairs of proteins (chains) in the model.
+    """
+    all_pairs = model['all_pairs']
+    pae_data = model['pae_data']
+    min_pae = float('inf')
+
+    for res1, res2 in all_pairs:
+        pae_1_2 = pae_data[res1][res2]
+        pae_2_1 = pae_data[res2][res1]
+        min_pae = min(min_pae, pae_1_2, pae_2_1)
+    
+    return min_pae
 
 ####################################################################################################
 # Example usage:

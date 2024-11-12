@@ -10,10 +10,19 @@ Then, for each subsequent model, the script calculates the fraction of these res
 pairs that are still within the distance cutoff (regardless of confidence).
 
 Functions:
+FOR GENERAL USE
 get_residue_pairs
-find_confident_interface_residues
+find_confident_pairs
+
+FOR COMPARING DIFFERENT RANKS, USING DICTIONARY 'MODEL' OBJECTS
+calculate_rop_scores
+calculate_percent_rop
+
+FOR USE WITH SINGLE PREDICTION OR RANK 1 MODEL
 check_distances_across_models
 measure_repeatibility
+
+TODO: Check compatibility with AF3 or multichain predictions
 """
 import re
 import numpy as np
@@ -42,43 +51,31 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
         - residue_pairs (list): List of residue pairs that are within the distance cutoff,
           where each pair is a tuple of residue numbers.
     """
-    # Check if structure_input is a file path or a model object
-    if isinstance(structure_input, str) or isinstance(structure_input, Path):
-        # Treat structure_input as a file path and parse the structure file
-        structure_model = parse_structure_file(structure_input)
-    elif isinstance(structure_input, Model.Model):
-        # Treat structure_input as an already loaded protein model object
-        structure_model = structure_input
-    else:
-        raise TypeError("structure_input must be either a file path (str or Path) or a protein model object (Bio.PDB.Model.Model).")
+    # Load structure
+    structure_model = (parse_structure_file(structure_input)
+                       if isinstance(structure_input, (str, Path))
+                       else structure_input)
+    if not isinstance(structure_model, Model.Model):
+        raise TypeError("structure_input must be a valid file path or protein model object.")
 
-    chains = list(structure_model.get_chains())
-    # Get mapping of residues to absolute residue ids
-    def get_abs_res_id(abs_res_lookup_dict, target_chain_id, target_res_id):
-        return abs_res_lookup_dict.get((target_chain_id, target_res_id), None)  # Returns None if the key is not found
-
-    # Find residue pairs across chains closer than distance cutoff
-    residue_pairs = []
-    # Collect residue info: chain_id, res_id, abs_res_id, coord(s)
+    # Get residue absolute IDs and coordinates
     chain_residues = {}
-    for chain in chains:
+    for chain in structure_model.get_chains():
         residues = []
         for res in chain.get_residues():
-            res_id = get_abs_res_id(abs_res_lookup_dict, chain.id, res.id[1])
-            if res_id is None:
-                continue
-            if not all_atom:
-                if 'CA' in res:
-                    coord = res['CA'].coord
-                    residues.append((res_id, coord))
-            else:
-                atom_coords = np.array([atom.coord for atom in res.get_atoms()])
-                residues.append((res_id, atom_coords))
+            abs_res_id = abs_res_lookup_dict.get((chain.id, res.id[1]))
+            if abs_res_id is not None:
+                if all_atom:
+                    atom_coords = np.array([atom.coord for atom in res.get_atoms()])
+                    residues.append((abs_res_id, atom_coords))
+                elif 'CA' in res:
+                    residues.append((abs_res_id, res['CA'].coord))
         chain_residues[chain.id] = residues
 
-    # Now, for each pair of chains
     residue_pairs = []
     chain_ids = list(chain_residues.keys())
+
+    # Iterate over chain pairs
     for i, chain1_id in enumerate(chain_ids[:-1]):
         residues1 = chain_residues[chain1_id]
         for chain2_id in chain_ids[i+1:]:
@@ -86,101 +83,97 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
             if not residues1 or not residues2:
                 continue
 
-            if not all_atom:
-                # Prepare coordinates and KD-tree
+            if all_atom:
+                # Concatenate all atom coordinates for each chain
+                coords1 = np.concatenate([r[1] for r in residues1])
+                coords2 = np.concatenate([r[1] for r in residues2])
+                res_map1 = np.repeat([r[0] for r in residues1], [len(r[1]) for r in residues1])
+                res_map2 = np.repeat([r[0] for r in residues2], [len(r[1]) for r in residues2])
+            else:
+                # Use CA coordinates
                 coords1 = np.array([r[1] for r in residues1])
                 coords2 = np.array([r[1] for r in residues2])
-                tree = cKDTree(coords2)
-                # Query neighbors within distance_cutoff
-                indices = tree.query_ball_point(coords1, r=distance_cutoff)
-                for idx1, neighbors in enumerate(indices):
-                    abs_res_id1 = residues1[idx1][0]
-                    for idx2 in neighbors:
-                        abs_res_id2 = residues2[idx2][0]
-                        residue_pairs.append((abs_res_id1, abs_res_id2))
-            else:
-                # For all_atom=True, we need to consider all atom coordinates
-                # Flatten all atom coordinates for residues in chain2
-                all_coords2 = np.concatenate([r[1] for r in residues2])
-                res_indices2 = np.concatenate([[r[0]] * len(r[1]) for r in residues2])
-                tree = cKDTree(all_coords2)
-                # Query for each atom in residues of chain1
-                for res_id1, atom_coords1 in residues1:
-                    if len(atom_coords1) == 0:
-                        continue
-                    # Query neighbors within distance_cutoff for each atom
-                    neighbors = tree.query_ball_point(atom_coords1, r=distance_cutoff)
-                    # Flatten the list of arrays
-                    all_neighbor_indices = np.concatenate(neighbors).astype(int)
-                    if len(all_neighbor_indices) > 0:
-                        # Get the residue IDs corresponding to these atoms
-                        abs_res_id2s = res_indices2[all_neighbor_indices]
-                        # Add unique residue pairs
-                        for abs_res_id2 in np.unique(abs_res_id2s):
-                            residue_pairs.append((res_id1, abs_res_id2))
+                res_map1 = np.array([r[0] for r in residues1])
+                res_map2 = np.array([r[0] for r in residues2])
+
+            # Use KD-tree for efficient distance calculation
+            tree2 = cKDTree(coords2)
+            neighbors = tree2.query_ball_point(coords1, r=distance_cutoff)
+
+            for idx1, indices in enumerate(neighbors):
+                abs_res_id1 = res_map1[idx1]
+                unique_residues = set(res_map2[idx] for idx in indices)
+                residue_pairs.extend((abs_res_id1, abs_res_id2) for abs_res_id2 in unique_residues)
+
     return residue_pairs
 
-
-
-def find_confident_interface_residues(structure_input, pae_input, distance_cutoff, pae_cutoff, abs_res_lookup_dict, is_pdb, all_atom):
+def find_confident_pairs(residue_pairs, pae_data, pae_cutoff):
     """
     Find pairs of interface residues that are confidently predicted to be close (in the
     top ranked model).
     
     Parameters:
-        - structure_input (str, Path or Bio.PDB.Model.Model): Either a file path to the PDB file
-          or a protein model object of the top ranked predicted structure.
-        - pae_input (str, Path or list of lists): Either a path to the JSON file containing PAE data
-          or a pre-loaded PAE matrix (e.g., list of lists or NumPy array).
-        - distance_cutoff (float): Maximum distance between CA atoms of residues to
-          be considered as interface.
+        - residue_pairs (list): List of residue pairs that are within the distance cutoff,
+          where each pair is a tuple of residue numbers.
+        - pae_data (dict): Dictionary containing the PAE values for each residue pair.
         - pae_cutoff (float): Maximum PAE value between a pair of residues for them
           to be considered as being confidently positioned with relation to each other.
-        - abs_res_lookup_dict (dict): Dictionary mapping chain and residue IDs to absolute
-          residue IDs.
-        - is_pdb (bool): True if the file is in PDB format. False if in CIF format.
-        - all_atom (bool): True if all atoms should be considered for measuring interface
-          distance, False if only CA atoms should be considered.
         
     Returns:
         - confident_pairs (list): List of residue pairs that are confidently predicted
           to be close in the top ranked model, where each pair is a tuple of residue
           numbers relative to the full sequence (i.e., not just position within the chain).
     """
-    # Check if structure_input is a file path or a model object
-    if isinstance(structure_input, str) or isinstance(structure_input, Path):
-        # Treat structure_input as a file path and parse the structure file
-        structure_model = parse_structure_file(structure_input)
-    elif isinstance(structure_input, Model.Model):
-        # Treat structure_input as an already loaded protein model object
-        structure_model = structure_input
-    else:
-        raise TypeError("structure_input must be either a file path (str or Path) or a protein model object (Bio.PDB.Model.Model).")
-
-    # Check if pae_input is a file path (string) or a pre-loaded matrix
-    if isinstance(pae_input, str) or isinstance(pae_input, Path):
-        # Extract PAE data from JSON file
-        pae_data = extract_pae(pae_input)
-    else:
-        # Assume it's already a pre-loaded PAE matrix
-        pae_data = pae_input
-
-    # Find residue pairs within distance cutoff
-    residue_pairs = get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom)
-    
-    # If cif, condense pae data in case of phosphorylated residues  
-    # necessary even without modfication, but unsure why
-    if not is_pdb:
-        pae_data = correct_cif_pae(structure_model, pae_data)
-
     # Check PAE values for each nearby residue pair, return pairs with PAE < cutoff
-    confident_pairs = []
+    confident_pairs = set()
     for res1, res2 in residue_pairs:
-        pae_value = pae_data[res1][res2]
-        if pae_value < pae_cutoff:
-            confident_pairs.append((res1, res2))
+        if pae_data[res1][res2] < pae_cutoff or pae_data[res2][res1] < pae_cutoff:
+            confident_pairs.add((res1, res2))
     return confident_pairs
 
+# Functions for use dictionary 'model' objects containing data, when comparing different ranked predictions
+def calculate_rop_scores(model_data):
+    """
+    Calculates the ROP scores for models with confident_pairs.
+    Updates the 'rop_score' field in each model's data.
+    """
+    # Exclude models with no confident_pairs from consideration
+    models_with_confident_pairs = [m for m in model_data if m['confident_pairs']]
+
+    if not models_with_confident_pairs:
+        # If none of the models have any confident pairs, return early
+        return
+
+    # For each model with confident_pairs, calculate ROP score
+    for model in models_with_confident_pairs:
+        rop_score = 0
+        for other_model in model_data:
+            if other_model == model:
+                continue
+            # Compute the percentage of model's confident_pairs present in other_model's all_pairs
+            shared_pairs = model['confident_pairs'] & other_model['all_pairs']
+            percentage = len(shared_pairs) / len(model['confident_pairs']) if model['confident_pairs'] else 0
+            if percentage > 0.25:
+                rop_score += 1
+        model['rop_score'] = rop_score
+
+def calculate_percent_rop(model_data, top_model):
+    """
+    Calculates percent_rop for the top model.
+    Returns the percent_rop value.
+    """
+    top_model_confident_pairs = top_model['confident_pairs']
+    percentages = []
+    for other_model in model_data:
+        if other_model == top_model:
+            continue
+        shared_pairs = top_model_confident_pairs & other_model['all_pairs']
+        percentage = len(shared_pairs) / len(top_model_confident_pairs) if top_model_confident_pairs else 0
+        if percentage > 0.25:
+            percentages.append(percentage)
+    return np.mean(percentages) if percentages else 0
+
+# Functions for use when only looking at rank 1 model, or for quickly checking a single prediction
 def check_distances_across_models(folder_path, confident_pairs, distance_cutoff, abs_res_lookup_dict, is_pdb, all_atom):
     """
     Check if confident interface residues (from the top model) are consistently
@@ -236,12 +229,11 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
         structure_path = structure_file.as_posix()
         rank_number = int(re.search(rank_pattern, str(structure_file)).group(1))
         structure_model = parse_structure_file(structure_path, is_pdb)
-        model_res_pairs = get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom)
+        model_res_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom))
         # Calculate proportion of confident pairs from top model which are also close in current model
         score = sum(1 for (res1, res2) in confident_pairs if (res1, res2) in model_res_pairs) / len(confident_pairs) if confident_pairs else 0
         if score > 0.25:
-            model_res_pairs_set = set(model_res_pairs)
-            consistent_res_pairs.intersection_update(model_res_pairs_set)
+            consistent_res_pairs.intersection_update(model_res_pairs)
         model_consistency_scores.append((rank_number, score))
 
     # Sort scores by model rank number
@@ -264,7 +256,7 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
             print(f"Mapping not found for abs_res_ids: {abs_res1}, {abs_res2}")
     return sorted_model_consistency_scores, num_consistent_models, average_consistency_level, res_pairs
 
-def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, all_atom=False):
+def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_atom=True):
     """
     Measure the similarity of confident interfaces across multiple models.
 
@@ -277,7 +269,8 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
     Parameters:
         - folder_path (str): Path to the folder containing the structure files
         - distance_cutoff (float): Maximum distance between CA atoms of residues (in
-          different chains) to be considered as interface
+          different chains) to be considered as interface - recommended to use 5 if all_atom
+          is True, 10 if all_atom is False
         - pae_cutoff (float): Maximum PAE value between a pair of residues for them
           to be considered as being confidently positioned with relation to each other
         - all_atom (bool): True if all atoms should be considered for measuring interface
@@ -301,8 +294,18 @@ def measure_repeatability(folder_path, distance_cutoff=10.0, pae_cutoff=15.0, al
     chain_residue_map = map_chains_and_residues(rank_1_structure_model)
     abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
     
-    # Find confident interface residues in the top ranked model
-    confident_pairs = find_confident_interface_residues(rank_1_structure_model, rank1_json, distance_cutoff, pae_cutoff, abs_res_lookup_dict, is_pdb, all_atom)
+    # Find interface residue pairs in the top ranked model
+    # Load PAE data
+    pae_data = extract_pae(rank1_json)
+    # If cif, condense pae data in case of phosphorylated residues  
+    # necessary even without modfication, but unsure why
+    if not is_pdb:
+        pae_data = correct_cif_pae(rank_1_structure_model, pae_data)
+
+    # Find residue pairs within the distance cutoff in the top ranked model
+    residue_pairs = get_residue_pairs(rank_1_structure_model, distance_cutoff, abs_res_lookup_dict, all_atom)
+    # Find confident subset of these
+    confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
     
     # If confident interface residue pairs are found, check distances between these across other models, otherwise return 0
     if confident_pairs:
