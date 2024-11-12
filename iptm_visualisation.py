@@ -13,6 +13,7 @@ visualize_iptm_matrix
 """
 import os
 import json
+from pathlib import Path
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
@@ -20,49 +21,53 @@ import seaborn as sns
 from analysis_utility import find_rank_001_files
 
 
-def extract_iptm(file_path):
+def extract_iptm(log_file_path, model_rank='001'):
     """
-    Extract the highest IPTM value from a log file (.txt) or the ipTM value from a .json
-    file based on the file type.
+    Extract the ipTM value for a specific model rank from a log file.
 
     Parameters:
-        - file_path (str): Path to the log or json file from which the ipTM value
-          is to be extracted.
+        - log_file_path (str or Path): Path to the log file from which the ipTM value is to be extracted.
+        - model_rank (str): The model rank to extract ipTM value for (e.g., '001').
 
     Returns:
-        - float: The highest ipTM value found in the file, or None if no ipTM values are
-          found.
+        - float: The ipTM value for the specified model, or None if not found.
     """
-    # If the file is a txt file, attempt to extract the IPTM value
-    if file_path.suffix == '.txt':
-        # Regex for extracting ipTM values from log files
-        iptm_pattern = re.compile(r'(?:iptm |ipTM=)(\d*\.?\d+)\n')
-        max_iptm = None
+    log_file_path = Path(log_file_path)
+    if log_file_path.suffix == '.txt':
+        # Regex pattern to match the ranking lines
+        iptm_pattern = re.compile(
+            r'rank_(\d+)_.*? pLDDT=\d*\.?\d+ pTM=\d*\.?\d+ ipTM=(\d*\.?\d+)')
         try:
-            with open(file_path, 'r') as file:
-                for line in file:
-                    match = iptm_pattern.search(line)
-                    if match:
-                        iptm_value = float(match.group(1))
-                        # Check if it's the highest ipTM value found so far (or the first)
-                        if max_iptm is None or iptm_value > max_iptm:
-                            max_iptm = iptm_value
-
+            with open(log_file_path, 'r') as file:
+                lines = file.readlines()
+            iptm_values = {}
+            for line in reversed(lines):
+                match = iptm_pattern.match(line.strip())
+                if match:
+                    line_model_rank = match.group(1)
+                    iptm_value = float(match.group(2))
+                    iptm_values[line_model_rank] = iptm_value
+                elif iptm_values:
+                    # Break once we've passed the ranking section
+                    break
+            # Return the ipTM value for the specified model rank
+            return iptm_values.get(model_rank, None)
         except FileNotFoundError:
-            print(f"File not found: {file_path}")
-        
-        return max_iptm
-
-    # If the file is a JSON file, attempt to extract the IPTM value
-    elif file_path.suffix == '.json':
+            print(f"File not found: {log_file_path}")
+            return None
+    
+    # If the file is a JSON file, attempt to extract the ipTM value
+    elif log_file_path.suffix == '.json':
         try:
-            with open(file_path, 'r') as file:
+            with open(log_file_path, 'r') as file:
                 data = json.load(file)
                 return float(data["iptm"]) if "iptm" in data else 0
         except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error reading JSON file: {file_path} with error {e}")
+            print(f"Error reading JSON file: {log_file_path} with error {e}")
 
-    return None
+    else:
+        print(f"Unsupported file type: {log_file_path.suffix}")
+        return None
 
 def sort_domains(domain_list):
     """
@@ -113,7 +118,7 @@ def create_iptm_matrix(base_folder):
     
     # Populate the DataFrame with iptm values
     for (protein1_domain, protein2_domain), iptm_value in domain_pairs.items():
-        matrix.at[protein2_domain, protein1_domain] = iptm_value
+        matrix.at[protein2_domain, protein1_domain] = float(iptm_value)
 
     return matrix
 
