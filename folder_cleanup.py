@@ -1,9 +1,31 @@
+"""
+Scripts to clean up folder structure by moving files from subdirectories to the parent directory and removing
+empty directories, or removing unwanted files based on a regex pattern to save space.
+
+Functions:
+    - tidy_folder_structure
+    - delete_files_matching_pattern
+"""
+
 import os
 import re
 from pathlib import Path
 import shutil
 
 def tidy_folder_structure(base_folder):
+    """
+    Move files from subdirectories to the parent directory and remove empty directories.
+
+    Parameters:
+        - base_folder (str): The path to the base directory containing subdirectories to be tidied.
+
+    Returns:
+        None
+
+    Note:
+        Once a folder is correctly formatted, rerunning the function will not move any files or
+        remove any directories.
+    """
     # Go through each protein pair folder in the base folder
     for protein_pair_folder in os.listdir(base_folder):
         protein_pair_path = os.path.join(base_folder, protein_pair_folder)
@@ -46,6 +68,9 @@ def delete_files_matching_pattern(folder_path, pattern):
     Parameters
         - folder_path (str): The path to the directory containing files to be deleted
         - pattern (str): The regex pattern to match the file names against
+
+    Returns
+        None
     """
     folder = Path(folder_path)
     total_size = 0
