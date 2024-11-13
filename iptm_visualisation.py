@@ -106,7 +106,6 @@ def create_iptm_matrix(base_folder):
                 protein1_domain, protein2_domain = folder_name.split('+')
                 protein1_domains.add(protein1_domain)
                 protein2_domains.add(protein2_domain)
-                print(extract_iptm(log_file))
                 highest_iptm = extract_iptm(log_file)
                 domain_pairs[(protein1_domain, protein2_domain)] = highest_iptm
 
@@ -142,7 +141,7 @@ def visualize_iptm_matrix(matrix, output_png_path):
 ####################################################################################################
 # Example usage
 #full_path = 'Ana2_mus101'
-full_path = '/Users/poppy/Dropbox/BUB1/BUB1_PLK1'
-iptm_matrix = create_iptm_matrix(full_path)
-png_file_path = os.path.join(full_path, 'iptm_matrix.png')
-visualize_iptm_matrix(iptm_matrix, png_file_path)
+#full_path = '/Users/poppy/Dropbox/BUB1/BUB1_PLK1'
+#iptm_matrix = create_iptm_matrix(full_path)
+#png_file_path = os.path.join(full_path, 'iptm_matrix.png')
+#visualize_iptm_matrix(iptm_matrix, png_file_path)
