@@ -34,18 +34,18 @@ def extract_iptm(log_file_path, model_rank='001'):
     """
     log_file_path = Path(log_file_path)
     if log_file_path.suffix == '.txt':
-        # Regex pattern to match the ranking lines
         iptm_pattern = re.compile(
-            r'rank_(\d+)_.*? pLDDT=\d*\.?\d+ pTM=\d*\.?\d+ ipTM=(\d*\.?\d+)')
+            r'rank_(\d+)_.*?pLDDT=\s*(\d*\.\d+)\s*pTM=\s*(\d*\.\d+)\s*ipTM=\s*(\d*\.\d+)'
+        )
         try:
             with open(log_file_path, 'r') as file:
                 lines = file.readlines()
             iptm_values = {}
             for line in reversed(lines):
-                match = iptm_pattern.match(line.strip())
+                match = iptm_pattern.search(line.strip())
                 if match:
                     line_model_rank = match.group(1)
-                    iptm_value = float(match.group(2))
+                    iptm_value = float(match.group(4))
                     iptm_values[line_model_rank] = iptm_value
                 elif iptm_values:
                     # Break once we've passed the ranking section
@@ -106,6 +106,7 @@ def create_iptm_matrix(base_folder):
                 protein1_domain, protein2_domain = folder_name.split('+')
                 protein1_domains.add(protein1_domain)
                 protein2_domains.add(protein2_domain)
+                print(extract_iptm(log_file))
                 highest_iptm = extract_iptm(log_file)
                 domain_pairs[(protein1_domain, protein2_domain)] = highest_iptm
 
@@ -141,6 +142,7 @@ def visualize_iptm_matrix(matrix, output_png_path):
 ####################################################################################################
 # Example usage
 #full_path = 'Ana2_mus101'
-#iptm_matrix = create_iptm_matrix(full_path)
-#png_file_path = os.path.join(full_path, 'iptm_matrix.png')
-#visualize_iptm_matrix(iptm_matrix, png_file_path)
+full_path = '/Users/poppy/Dropbox/BUB1/BUB1_PLK1'
+iptm_matrix = create_iptm_matrix(full_path)
+png_file_path = os.path.join(full_path, 'iptm_matrix.png')
+visualize_iptm_matrix(iptm_matrix, png_file_path)
