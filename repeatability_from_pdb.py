@@ -14,8 +14,8 @@ FOR GENERAL USE
 get_residue_pairs
 find_confident_pairs
 
-FOR COMPARING DIFFERENT RANKS, USING DICTIONARY 'MODEL' OBJECTS
-calculate_rop_scores
+FOR COMPARING WITH A PARTICULAR MODEL
+calculate_rop_score
 calculate_percent_rop
 
 FOR USE WITH SINGLE PREDICTION OR RANK 1 MODEL
@@ -40,15 +40,16 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
     Parameters:
         - structure_input (str, Path or Bio.PDB.Model.Model): Either a file path to the PDB file
           or a protein model object.
-        - distance_cutoff (float): Maximum distance between CA atoms of residues to
-          be considered as interface.
+        - distance_cutoff (float): Maximum distance between atoms of residues to
+          be considered as interface - recommended to use 5 if all_atom
+          is True, 10 if all_atom is False
         - abs_res_lookup_dict (dict): Dictionary mapping chain and residue IDs to absolute
           residue IDs.
         - all_atom (bool): True if all atoms should be considered for measuring interface
           distance, False if only CA atoms should be considered.
     
     Returns:
-        - residue_pairs (list): List of residue pairs that are within the distance cutoff,
+        - residue_pairs (list): List of unique residue pairs that are within the distance cutoff,
           where each pair is a tuple of residue numbers.
     """
     # Load structure
@@ -72,7 +73,7 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
                     residues.append((abs_res_id, res['CA'].coord))
         chain_residues[chain.id] = residues
 
-    residue_pairs = []
+    unique_residue_pairs = set()  # Track unique residue pairs
     chain_ids = list(chain_residues.keys())
 
     # Iterate over chain pairs
@@ -102,9 +103,21 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
 
             for idx1, indices in enumerate(neighbors):
                 abs_res_id1 = res_map1[idx1]
-                unique_residues = set(res_map2[idx] for idx in indices)
-                residue_pairs.extend((abs_res_id1, abs_res_id2) for abs_res_id2 in unique_residues)
+                for idx2 in indices:
+                    abs_res_id2 = res_map2[idx2]
 
+                    # Add the pair in sorted order to ensure uniqueness
+                    pair = tuple(sorted((abs_res_id1, abs_res_id2)))
+
+                    # Skip if the pair has already been identified
+                    if pair in unique_residue_pairs:
+                        continue
+
+                    # Add the new unique pair
+                    unique_residue_pairs.add(pair)
+
+    # Convert the set of unique pairs to a list
+    residue_pairs = list(unique_residue_pairs)
     return residue_pairs
 
 def find_confident_pairs(residue_pairs, pae_data, pae_cutoff):
@@ -131,45 +144,63 @@ def find_confident_pairs(residue_pairs, pae_data, pae_cutoff):
             confident_pairs.add((res1, res2))
     return confident_pairs
 
-# Functions for use dictionary 'model' objects containing data, when comparing different ranked predictions
-def calculate_rop_scores(model_data):
+# Functions for calculating rop of a specfic rank model, not assumed to be rank 1
+def calculate_rop_score(residue_pairs, other_models_residue_pairs, threshold = 0.25):
     """
-    Calculates the ROP scores for models with confident_pairs.
-    Updates the 'rop_score' field in each model's data.
-    """
-    # Exclude models with no confident_pairs from consideration
-    models_with_confident_pairs = [m for m in model_data if m['confident_pairs']]
+    Calculates the ROP score for a set of residue pairs in a model, based on the
+    percentage of these pairs that are also present in other models.
 
-    if not models_with_confident_pairs:
-        # If none of the models have any confident pairs, return early
-        return
-
-    # For each model with confident_pairs, calculate ROP score
-    for model in models_with_confident_pairs:
-        rop_score = 0
-        for other_model in model_data:
-            if other_model == model:
-                continue
-            # Compute the percentage of model's confident_pairs present in other_model's all_pairs
-            shared_pairs = model['confident_pairs'] & other_model['all_pairs']
-            percentage = len(shared_pairs) / len(model['confident_pairs']) if model['confident_pairs'] else 0
-            if percentage > 0.25:
-                rop_score += 1
-        model['rop_score'] = rop_score
-
-def calculate_percent_rop(model_data, top_model):
+    Parameters:
+        - residue_pairs (set): Set of residue pairs
+        - other_models_residue_pairs (list): List of sets of residue pairs from other models
+          (should NOT include the model being compared)
+        - threshold (float): Minimum percentage of residue pairs that must be present in
+          each other model for the interface to be considered consistent
+    Returns:
+        - rop_score (int): Number of models where the percentage of residue pairs from the
+          model that are also present in the other model is greater than the threshold.
     """
-    Calculates percent_rop for the top model.
-    Returns the percent_rop value.
+    if not residue_pairs or not other_models_residue_pairs:
+        return 0
+
+    if not isinstance(residue_pairs, set):
+        residue_pairs = set(residue_pairs)
+
+    if not all(isinstance(other_pairs, set) for other_pairs in other_models_residue_pairs):
+        other_models_residue_pairs = [set(other_pairs) for other_pairs in other_models_residue_pairs]
+
+    rop_score = 0
+    for other_model in other_models_residue_pairs:
+        # Compute the percentage of model's confident_pairs present in other_model's residue_pairs
+        shared_pairs = residue_pairs & other_model
+        percentage = len(shared_pairs) / len(residue_pairs)
+        if percentage >= threshold:
+            rop_score += 1
+    return rop_score
+
+def calculate_percent_rop(residue_pairs, other_models_residue_pairs, threshold = 0.25):
     """
-    top_model_confident_pairs = top_model['confident_pairs']
+    Calculates percent_rop for a set of residue pairs in a model, based on the
+    percentage of these pairs that are also present in other models.
+
+    Parameters:
+        - residue_pairs (set): Set of residue pairs in model of interest
+        - other_models_residue_pairs (list): List of sets of residue pairs from other models
+          (should NOT include the model being compared)
+        - threshold (float): Minimum percentage of residue pairs that must be present in
+          each other model for the interface to be considered
+
+    Returns:
+        - percent_rop (float): Average percentage of residue pairs from the model that are
+          also present in other models surpassing threshold
+    """
+    if not residue_pairs or not other_models_residue_pairs:
+        return 0
     percentages = []
-    for other_model in model_data:
-        if other_model == top_model:
-            continue
-        shared_pairs = top_model_confident_pairs & other_model['all_pairs']
-        percentage = len(shared_pairs) / len(top_model_confident_pairs) if top_model_confident_pairs else 0
-        if percentage > 0.25:
+    for other_model in other_models_residue_pairs:
+        shared_pairs = residue_pairs & other_model
+        percentage = len(shared_pairs) / len(residue_pairs) if residue_pairs else 0
+        if percentage >= threshold:
             percentages.append(percentage)
     return np.mean(percentages) if percentages else 0
 
@@ -185,7 +216,8 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
           to be close in the top ranked model, where each pair is a tuple of residue
           numbers (relative to the full sequence, not just the chain position)
         - distance_cutoff (float): Maximum distance between CA atoms of residues (in
-          different chains) to be considered as interface
+          different chains) to be considered as interface - recommended to use 5 if all_atom
+          is True, 10 if all_atom is False
         - abs_res_lookup_dict (dict): Dictionary mapping chain and residue IDs to absolute
           residue IDs
         - is_pdb (bool): True if the files are in PDB format, False if in CIF format
