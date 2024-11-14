@@ -74,7 +74,7 @@ def process_alphafold_prediction(folder_path, is_pdb=True, **kwargs):
 
         # Find average interface PAE if confident_pairs are found
         if residue_pairs:
-            avg_int_pae = compute_average_interface_pae(pae_matrix, residue_pairs)
+            avg_int_pae = compute_average_interface_pae(residue_pairs, pae_matrix)
 
     # Measure repeatability
     pae_cutoff = kwargs.get('repeatability_params', {}).get('pae_cutoff', 15)
@@ -205,10 +205,5 @@ def process_all_predictions(base_folder, output_file="alphafold_predictions_resu
 
 ####################################################################################################
 # Example usage
-#base_folder = "../../../../../Dropbox/2022.10.20_Drosophila_Version_1"
-base_folder = '/Users/poppy/Dropbox/to_analyse'
-process_all_predictions(base_folder, output_file="alphafold_predictions_results.csv", is_pdb=True, ipTM_graphic=False)
-
-# For testing completion bias
-# path = "data/CENPJ_PALB2/CENPJ_D5+PALB2_D5"
-# print(process_alphafold_prediction(path))
+#base_folder = '/Users/poppy/Dropbox/PCM'
+#process_all_predictions(base_folder, output_file="alphafold_predictions_results.csv", is_pdb=True, ipTM_graphic=False)

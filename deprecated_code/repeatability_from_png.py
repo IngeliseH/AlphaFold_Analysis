@@ -164,17 +164,9 @@ def process_all_predictions_PAE_png_ROP(base_folder, input_file):
                             num_consistent = process_alphafold_prediction_PAE_png_ROP(domain_path)
 
                             # Write results to dataframe
-                            df.loc[(df['Protein1'] == protein1) & (df['Protein2'] == protein2) & (df['Protein1_Domain'] == protein1_domain) & (df['Protein2_Domain'] == protein2_domain), 'Num_Consistent_png'] = num_consistent
-                            df.loc[(df['Protein1'] == protein2) & (df['Protein2'] == protein1) & (df['Protein1_Domain'] == protein2_domain) & (df['Protein2_Domain'] == protein1_domain), 'Num_Consistent_png'] = num_consistent
+                            df.loc[(df['Protein1'] == protein1) & (df['Protein2'] == protein2) & (df['Protein1_Domain'] == protein1_domain) & (df['Protein2_Domain'] == protein2_domain), 'png_ROP'] = num_consistent
+                            df.loc[(df['Protein1'] == protein2) & (df['Protein2'] == protein1) & (df['Protein1_Domain'] == protein2_domain) & (df['Protein2_Domain'] == protein1_domain), 'png_ROP'] = num_consistent
     return df
-
-#use
-base_folder = "../../../../../Dropbox/2022.10.20_Drosophila_Version_1"
-df = process_all_predictions_PAE_png_ROP(base_folder, "data/alphafold_predictions_results.csv")
-#save df as processed_with_png_ROP.csv
-df.to_csv("data/alphafold_predictions_png_ROP.csv", index=False)
-#summarise df
-print(df)
 
 ####################################################################################################
 # Example usage
@@ -184,3 +176,10 @@ print(df)
 #print(f"Protein lengths: A = {len_A}, B = {len_B}")
 #ssim_values, average_ssim, proportional_int_size = calculate_interprotein_ssim(pae_png_file, len_A, len_B)
 #print(f"SSIM values for AB and BA regions: {ssim_values}. Interface size = {proportional_int_size}, so values greater than {1 - proportional_int_size} are considered consistent")
+
+base_folder = "../../../../../Dropbox/2022.10.20_Drosophila_Version_1"
+df = process_all_predictions_PAE_png_ROP(base_folder, "data/alphafold_predictions_results.csv")
+#save df as processed_with_png_ROP.csv
+df.to_csv("data/alphafold_predictions_png_ROP.csv", index=False)
+#summarise df
+print(df)
