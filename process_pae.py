@@ -7,8 +7,8 @@ visualize_pae_matrix
 compute_average_interface_pae
 compute_pae_evenness
 
-FASTER METHOD FOR DICTIONARY OBJECTS WHERE INTERFACE PAIRS ARE ALREADY FOUND:
-model_dictionary_min_pae
+FASTER METHOD FOR WHEN INTERFACE PAIRS ARE ALREADY FOUND:
+residue_pairs_min_pae
 """
 import numpy as np
 import pandas as pd
@@ -130,37 +130,40 @@ def visualize_pae_matrix(pae_matrix, chain_lengths=None, cmap="Spectral", interv
 
     plt.show()
 
-def compute_average_interface_pae(pae_matrix, confident_pairs):
+def compute_average_interface_pae(residue_pairs, pae_matrix):
     """
-    Computes the average PAE value for the confident interface residues.
+    Computes the average PAE value for interface residues.
 
     Parameters:
+        - residue_pairs (list): List of tuples representing residue pairs.
         - pae_matrix (list of lists): The PAE matrix extracted from the JSON file.
-        - confident_pairs (list): List of tuples representing residue pairs.
 
     Returns:
         - average_pae (float): The average PAE value of the interface residues.
     """
+    if not residue_pairs:
+        return None
+
     pae_values = [
         pae_matrix[res1][res2]
-        for res1, res2 in confident_pairs
+        for res1, res2 in residue_pairs
         if 0 <= res1 < len(pae_matrix) and 0 <= res2 < len(pae_matrix)
     ] + [
         pae_matrix[res2][res1]
-        for res1, res2 in confident_pairs
+        for res1, res2 in residue_pairs
         if 0 <= res2 < len(pae_matrix) and 0 <= res1 < len(pae_matrix)
     ]
 
-    return np.mean(pae_values) if pae_values else None
+    return np.mean(pae_values)
 
-def compute_pae_evenness(pae_matrix, confident_pairs, max_pae_value=31.0):
+def compute_pae_evenness(residue_pairs, pae_matrix, max_pae_value=31.0):
     """
     Computes PAE evenness by measuring the symmetry between values
     in pae_matrix[res1][res2] and pae_matrix[res2][res1].
 
     Parameters:
+        - residue_pairs (list): List of tuples representing residue pairs.
         - pae_matrix (list of lists): The PAE matrix extracted from the JSON file.
-        - confident_pairs (list): List of tuples representing residue pairs.
         - max_pae_value (float): Maximum possible PAE value, for normalization.
 
     Returns:
@@ -168,30 +171,30 @@ def compute_pae_evenness(pae_matrix, confident_pairs, max_pae_value=31.0):
     """
     normalized_diffs = [
         abs(pae_matrix[res1][res2] - pae_matrix[res2][res1]) / max_pae_value
-        for res1, res2 in confident_pairs
+        for res1, res2 in residue_pairs
         if 0 <= res1 < len(pae_matrix) and 0 <= res2 < len(pae_matrix)
     ]
     return 1 - np.mean(normalized_diffs) if normalized_diffs else 1.0
 
-# Working with proteins as model dictionaries with PAE matrix as an associated key
-def model_dictionary_min_pae(model):
+# Working with lists of residue pairs
+def residue_pairs_min_pae(residue_pairs, pae_data):
     """
     Faster method to find the minimum PAE value between 2 proteins, when interface residue pairs
-    have already been found, and data is stored in a model dictionary with all_pairs and pae_data
-    as associated attributes.
+    have already been found
 
     Parameters:
-        - model (dict): A dictionary containing interface residue pairs in an 'all_pairs' key
-          and PAE data in a 'pae_data' key.
+        - residue_pairs (list of tuples): List of residue pairs representing the interface.
+        - pae_data (dict): Dictionary of PAE values between all residues in the model.
     
     Returns:
         - float: The minimum PAE value between all pairs of proteins (chains) in the model.
     """
-    all_pairs = model['all_pairs']
-    pae_data = model['pae_data']
+    if not residue_pairs:
+        return None
+
     min_pae = float('inf')
 
-    for res1, res2 in all_pairs:
+    for res1, res2 in residue_pairs:
         pae_1_2 = pae_data[res1][res2]
         pae_2_1 = pae_data[res2][res1]
         min_pae = min(min_pae, pae_1_2, pae_2_1)
