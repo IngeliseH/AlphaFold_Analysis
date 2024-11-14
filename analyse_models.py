@@ -184,3 +184,9 @@ def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_ato
     compute_additional_metrics(best_model)
 
     return best_model
+
+####################################################################################################
+# Example usage:
+#from run_folders import process_all_predictions
+#base_folder = '/Users/poppy/Dropbox/PCM'
+#process_all_predictions(base_folder, score_interaction, output_file="PCM_results.csv")

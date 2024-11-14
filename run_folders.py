@@ -101,9 +101,17 @@ def process_all_predictions(
 
     if all_data:
         headers = set().union(*[data.keys() for data in all_data])
+        # order the headers to put protein and domain names first
+        headers = ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain'] + sorted([h for h in headers if h not in ['Protein1', 'Protein2', 'Protein1_Domain', 'Protein2_Domain']])
         df = pd.DataFrame(all_data)
-        df = df[headers]
+        df = df[list(headers)]
         df.to_csv(os.path.join(base_folder, output_file), index=False)
         print(f"Results written to {output_file}")
     else:
         print("No data to write.")
+
+####################################################################################################
+# Example usage:
+#from interface_analysis import score_interaction
+#base_folder = '/Users/poppy/Dropbox/PCM'
+#process_all_predictions(base_folder, analysis_function=score_interaction, output_file="PCM_results.csv")
