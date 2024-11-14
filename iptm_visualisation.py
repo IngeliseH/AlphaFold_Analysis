@@ -13,9 +13,10 @@ visualize_iptm_matrix
 """
 import os
 import json
+import re
 from pathlib import Path
 import pandas as pd
-import re
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analysis_utility import find_rank_001_files
@@ -114,9 +115,11 @@ def create_iptm_matrix(base_folder):
     protein2_domains = sort_domains(list(protein2_domains))
 
     # Initialize the DataFrame with zeroes
-    matrix = pd.DataFrame(index=protein2_domains, columns=protein1_domains).fillna(0)
+    matrix = pd.DataFrame(index=protein2_domains, columns=protein1_domains, dtype=float).fillna(0.0)
+    matrix = matrix.infer_objects()
     
     # Populate the DataFrame with iptm values
+    iptm_value = float(iptm_value) if np.isfinite(iptm_value) else 0.0
     for (protein1_domain, protein2_domain), iptm_value in domain_pairs.items():
         matrix.at[protein2_domain, protein1_domain] = float(iptm_value)
 
@@ -140,7 +143,6 @@ def visualize_iptm_matrix(matrix, output_png_path):
 
 ####################################################################################################
 # Example usage
-#full_path = 'Ana2_mus101'
 #full_path = '/Users/poppy/Dropbox/BUB1/BUB1_PLK1'
 #iptm_matrix = create_iptm_matrix(full_path)
 #png_file_path = os.path.join(full_path, 'iptm_matrix.png')
