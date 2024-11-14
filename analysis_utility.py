@@ -9,6 +9,7 @@ map_chains_and_residues
 determine_chain_lengths
 extract_pae
 modify_bfactors
+readable_ranges
 """
 import json
 import numpy as np
@@ -196,3 +197,64 @@ def modify_bfactors(protein_model, residue_scores_list, output, default=0.0):
     if isinstance(output, Path):
         output = str(output)
     io.save(output)
+
+def readable_ranges(absolute_pairs, structure_model, abs_res_lookup_dict=None):
+    """
+    Convert absolute residue IDs to chain-specific IDs and format ranges by protein in an easily readable way.
+
+    Parameters:
+        - absolute_pairs (list of tuples): List of residue pairs in absolute numbering.
+        - structure_model (Bio.PDB.Model.Model): Protein structure model containing chain IDs.
+        - abs_res_lookup_dict (dict, optional): Precomputed dictionary mapping chain-specific
+          to absolute residue IDs. If None, this dictionary is computed within the function.
+
+    Returns:
+        - dict: Dictionary containing formatted residue ranges for each protein.
+    """
+    # Compute the reverse lookup dictionary if not provided
+    if abs_res_lookup_dict is None:
+        chain_residue_map = map_chains_and_residues(structure_model)
+        abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
+
+    # Reverse lookup to map absolute IDs to chain-specific IDs
+    inv_abs_res_lookup_dict = {v: k for k, v in abs_res_lookup_dict.items()}
+    chain_ids = [chain.id for chain in structure_model.get_chains()]
+
+    # Convert each pair to chain-specific IDs
+    chain_specific_pairs = []
+    residues_by_protein = {'Protein1': set(), 'Protein2': set()}
+
+    for res1, res2 in absolute_pairs:
+        chain1, res_num1 = inv_abs_res_lookup_dict[res1]
+        chain2, res_num2 = inv_abs_res_lookup_dict[res2]
+        chain_specific_pairs.append((f"{chain1} {res_num1}", f"{chain2} {res_num2}"))
+
+        # Group residues by protein based on chain
+        if chain1 == chain_ids[0]:  # Assuming chain1 corresponds to Protein1
+            residues_by_protein['Protein1'].add(res_num1)
+            residues_by_protein['Protein2'].add(res_num2)
+        else:
+            residues_by_protein['Protein1'].add(res_num2)
+            residues_by_protein['Protein2'].add(res_num1)
+
+    # Format residue ranges for simplified output
+    def format_ranges(numbers):
+        if not numbers:
+            return "None"
+        sorted_nums = sorted(numbers)
+        ranges = []
+        start = end = sorted_nums[0]
+        for n in sorted_nums[1:]:
+            if n <= end + 2:
+                end = n
+            else:
+                ranges.append(f"{start}-{end}" if start != end else str(start))
+                start = end = n
+        ranges.append(f"{start}-{end}" if start != end else str(start))
+        return ", ".join(map(str, ranges))
+
+    # Add chain-specific numbering information as an attribute
+    return {
+        'Protein1': format_ranges(residues_by_protein['Protein1']),
+        'Protein2': format_ranges(residues_by_protein['Protein2'])
+    }
