@@ -4,7 +4,7 @@ Function to convert data from a CSV file to a format that can be used in Gephi f
 import pandas as pd
 import os
 
-def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', include=[], output_csv='gephi_input.csv', update_input=False):
+def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', include=[], output_csv='gephi_input.csv', criteria=None):
     """
     Convert a CSV file to a format that can be used in Gephi for network visualization.
 
@@ -15,7 +15,7 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
         - weight (str): Name of the column that contains the edge weights
         - include (list): List of additional columns to include in the output
         - output_csv (str): Name of the output CSV file
-        - update_input (bool): Whether to update the input CSV file with the new columns
+        - criteria (dict): Dictionary of criteria to filter the rows. Keys are column names and values are lambda functions for filtering.
 
     Returns
         - None, but saves the output CSV file in the same directory as the input file
@@ -23,9 +23,10 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
     # Read the CSV file into a pandas DataFrame
     df = pd.read_csv(input_csv, sep=',')
 
-    # Update input file with new column
-    if update_input:
-        df.to_csv(input_csv, index=False)
+    # Apply filtering criteria if provided
+    if criteria:
+        for column, condition in criteria.items():
+            df = df[df[column].apply(condition)]
 
     # Prepare the output DataFrame with the required columns
     columns_to_include = [source, target, weight] + include
@@ -39,3 +40,22 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
 
     # Save to CSV
     output_df.to_csv(output_path, index=False)
+
+############################################################################################
+# Example usage
+# criteria = {
+#     'rop': lambda x: x >= 2,
+#     'avg_pae': lambda x: x <= 15,
+#     'min_pae': lambda x: x <= 5,
+#     'size': lambda x: x >= 5
+# }
+
+# gephi_format(
+#     input_csv='/Users/poppy/Dropbox/PCM/PCM_interface_analysis.csv',
+#     source='Protein1',
+#     target='Protein2',
+#     weight='rop',
+#     include=['avg_pae', 'min_pae', 'size'],
+#     output_csv='gephi_interfaces_PCM.csv',
+#     criteria=criteria
+# )
