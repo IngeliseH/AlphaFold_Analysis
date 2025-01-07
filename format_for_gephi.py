@@ -4,7 +4,7 @@ Function to convert data from a CSV file to a format that can be used in Gephi f
 import pandas as pd
 import os
 
-def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', include=[], output_csv='gephi_input.csv', criteria=None):
+def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', include=[], output_csv='gephi_input.csv', criteria=None, priority='avg_pae', priority_type='min'):
     """
     Convert a CSV file to a format that can be used in Gephi for network visualization.
 
@@ -16,6 +16,8 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
         - include (list): List of additional columns to include in the output
         - output_csv (str): Name of the output CSV file
         - criteria (dict): Dictionary of criteria to filter the rows. Keys are column names and values are lambda functions for filtering.
+        - priority (str): Name of the column to use for prioritization (NOT the weight. Currently only used if weight = rop)
+        - priority_type (str): Type of prioritization to use. Either 'max' or 'min'. Currently only used if weight = rop
 
     Returns
         - None, but saves the output CSV file in the same directory as the input file
@@ -27,10 +29,40 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
     if criteria:
         for column, condition in criteria.items():
             df = df[df[column].apply(condition)]
+        if df.empty:
+            return "No predictions meet the specified criteria."
+    
+    # initialise output df
+    output_df = pd.DataFrame(columns=[source, target, weight] + include)
+    if weight == 'rop':
+        # find set of integer values of rop that meet criteria eg >= 2
+        rop_values = df['rop'].unique()
+        rop_values = [int(i) for i in rop_values]
+        # iterate from max to min
+        for i in range(max(rop_values), min(rop_values)-1, -1):
+            # create new filtered df
+            df_filtered = df[df['rop'] == i]
+            # if new df not empty, go through each protein pair
+            if not df_filtered.empty:
+                for index, row in df_filtered.iterrows():
+                    # check if protein pair is already in output_df
+                    if not ((output_df[source] == row['Protein1']) & (output_df[target] == row['Protein2'])).any():
+                        # if not, find all instances of protein pair in df_filtered
+                        df_pair = df_filtered[(df_filtered['Protein1'] == row['Protein1']) & (df_filtered['Protein2'] == row['Protein2'])]
+                        # check value of priority column for each and add entry with highest val if priority_type is max or lowest if min
+                        if priority_type == 'max':
+                            max_val = df_pair[priority].max()
+                            output_df = pd.concat([output_df, df_pair[df_pair[priority] == max_val].iloc[[0]]])
+                        elif priority_type == 'min':
+                            min_val = df_pair[priority].min()
+                            output_df = pd.concat([output_df, df_pair[df_pair[priority] == min_val].iloc[[0]]])
+        # rename columns
+        output_df = output_df.rename(columns={source: 'Source', target: 'Target', weight: 'Weight'})
 
-    # Prepare the output DataFrame with the required columns
-    columns_to_include = [source, target, weight] + include
-    output_df = df[columns_to_include].rename(columns={source: 'Source', target: 'Target', weight: 'Weight'})
+    else:
+        # Prepare the output DataFrame with the required columns
+        columns_to_include = [source, target, weight] + include
+        output_df = df[columns_to_include].rename(columns={source: 'Source', target: 'Target', weight: 'Weight'})
 
     # Get the directory of the input file
     output_dir = os.path.dirname(input_csv)
