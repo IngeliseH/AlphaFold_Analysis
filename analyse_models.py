@@ -45,23 +45,31 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
     # Collect structure files
     structure_files = sorted(
         [x for x in Path(folder_path).glob(file_extension) if 'conservation' not in x.name],
-        key=lambda x: int(re.search(r'rank_(\d+)', x.name).group(1))
+        key=lambda x: int(re.search(r'(rank|model)_(\d+)', x.name).group(2))
     )
 
     model_data = []
     for model_file in structure_files:
         # Extract model rank from filename
-        rank_match = re.search(r'rank_(\d+)', model_file.name)
+        rank_match = re.search(r'(rank|model)_(\d+)', model_file.name)
         if rank_match:
-            model_rank = rank_match.group(1)
+            model_rank = rank_match.group(2)
         else:
             model_rank = None  # Handle as needed
 
         # Parse structure model
         structure_model = parse_structure_file(model_file, is_pdb)
 
-        # Adjust JSON file name if it includes 'unrelaxed_' prefix
-        json_file = model_file.with_name(model_file.name.replace("unrelaxed", "scores")).with_suffix('.json')
+        if is_pdb:
+            # Adjust JSON file name if it includes 'unrelaxed_' prefix
+            json_file = model_file.with_name(model_file.name.replace("unrelaxed", "scores")).with_suffix('.json')
+            # iptm data is in json file
+            log_file = json_file
+        else:
+            # For CIF files, JSON file name is same as model file name with "model" replaced with "full_data"
+            json_file = model_file.with_name(model_file.name.replace("model", "full_data")).with_suffix('.json')
+            # log fie with iptm is named with summary_confidences instead of full_data
+            log_file = model_file.with_name(model_file.name.replace("model", "summary_confidences")).with_suffix('.json')
         # Extract PAE data
         pae_data = extract_pae(json_file)
 
@@ -78,6 +86,7 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
             'model_file': model_file,
             'model_rank': model_rank,
             'json_file': json_file,
+            'log_file': log_file,
             'structure_model': structure_model,
             'pae_data': pae_data,
             'residue_pairs': residue_pairs,
@@ -136,6 +145,7 @@ def compute_additional_metrics(model):
     pae_data = model['pae_data']
     model_file = model['model_file']
     json_file = model['json_file']
+    log_file = model['log_file']
 
     # Compute min_pae if not already found (ie if not using best_model selection, as this finds pae)
     if 'min_pae' not in model:
@@ -144,10 +154,11 @@ def compute_additional_metrics(model):
     model['avg_interface_pae'] = compute_average_interface_pae(confident_pairs, pae_data)
     # Compute pae_evenness
     model['pae_evenness'] = compute_pae_evenness(confident_pairs, pae_data)
-    # Compute pdockq
-    model['pdockq'], _ = compute_pdockq(model_file, json_file)
+    # Compute pdockq if only 2 chains
+    if len(model['structure_model']) == 2:
+        model['pdockq'], _ = compute_pdockq(model_file, json_file)
     # Extract iptm
-    model['iptm'] = extract_iptm(json_file, model['model_rank'])
+    model['iptm'] = extract_iptm(log_file, model['model_rank'])
     # Find number of confident interface residue pairs
     model['interface_size'] = len(confident_pairs)
     
@@ -186,7 +197,42 @@ def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_ato
     return best_model
 
 ####################################################################################################
-# Example usage:
-#from run_folders import process_all_predictions
-#base_folder = '/Users/poppy/Dropbox/PCM'
-#process_all_predictions(base_folder, score_interaction, output_file="PCM_results.csv")
+# # Example usage:
+# folder_path = 'data/Ana2_Sak/Ana2_D1+Sak_D1'
+# distance_cutoff = 5.0
+# pae_cutoff = 15.0
+# all_atom = True
+
+# # USING INDIVIDUAL FUNCTIONS
+# # Collect model data
+# model_data = collect_model_data(folder_path, distance_cutoff, pae_cutoff, all_atom)
+# print(f"Collected data for {len(model_data)} models.")
+# # Calculate ROP scores for each model
+# for model in model_data:
+#     other_model_pairs = [m['confident_pairs'] for m in model_data if m != model]
+#     model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs)
+# print("Calculated ROP scores for all models.")
+# # Select the best model based on ROP scores and min_pae increase criteria
+# best_model = select_best_model(model_data)
+# print(f"Selected best model: {best_model['model_file']} with ROP score: {best_model['rop']}")
+# # Compute additional metrics for the best model
+# compute_additional_metrics(best_model)
+# print("Computed additional metrics for the best model.")
+# # Print out the best model's data
+# print("Best model data:")
+# for key, value in best_model.items():
+#     print(f"{key}: {value}")
+
+# # USING OVERALL SCORING FUNCTION
+# # Score interaction for the best model
+# best_model = score_interaction(folder_path, distance_cutoff, pae_cutoff, all_atom)
+# print(f"Best model selected: {best_model['model_file']}")
+# print(f"ROP score: {best_model['rop']}")
+# print(f"Percent ROP: {best_model['percent_rop']}")
+# print(f"Min PAE: {best_model['min_pae']}")
+# print(f"Avg Interface PAE: {best_model['avg_interface_pae']}")
+# print(f"PAE Evenness: {best_model['pae_evenness']}")
+# print(f"pDockQ: {best_model['pdockq']}")
+# print(f"ipTM: {best_model['iptm']}")
+# print(f"Interface Size: {best_model['interface_size']}")
+# print(f"Confident Pairs (Chain Specific): {best_model['confident_pairs_chain_specific']}")
