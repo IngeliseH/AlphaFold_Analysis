@@ -80,6 +80,7 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
         # Get interprotein residue pairs within distance cutoff (residue_pairs)
         residue_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom))
         confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
+        secondary_pairs = get_residue_pairs(structure_model, distance_cutoff+1, abs_res_lookup_dict, all_atom)
 
         # Store model data
         model_data.append({
@@ -91,6 +92,7 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
             'pae_data': pae_data,
             'residue_pairs': residue_pairs,
             'confident_pairs': confident_pairs,
+            'secondary_pairs': secondary_pairs,
             'rop': 0, # Placeholder for ROP score
             'abs_res_lookup_dict': abs_res_lookup_dict
             # Other metrics will be computed and added later

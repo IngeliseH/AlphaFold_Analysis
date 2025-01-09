@@ -1,5 +1,4 @@
 """
-overall function goes through all 
 for each domain pair:
     - make model object for each model
     - find residue pairs, confident residue pairs and rop for each
@@ -9,9 +8,8 @@ for each domain pair:
     - for each interface > 1, avg_pae and confidence class (based on this avg_pae)
     - for each high or medium confidence interface, find min_pae and rop, and residues involved in readable format
         - find rop by set of residue pairs in interface to sets of confident residue pairs in each other model
-        - set higher threshold - 70%?
+        - set higher threshold - 70%
     - return list of dictionaries of data for each high or medium confidence interface
-
 """
 import networkx as nx
 import numpy as np
@@ -199,12 +197,12 @@ def find_and_score_interfaces(folder_path, distance_cutoff=5.0, pae_cutoff=15.0,
 
     # Calculate ROP scores
     for model in model_data:
-        other_model_pairs = [m['confident_pairs'] for m in model_data if m != model]
+        other_model_pairs = [m['secondary_pairs'] for m in model_data if m != model]
         model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs)
 
     # Select the best model
     best_model = select_best_model(model_data)
-    other_model_pairs = [set(m['confident_pairs']) for m in model_data if m != best_model]
+    other_model_pairs = [set(m['secondary_pairs']) for m in model_data if m != best_model]
 
     # Compute pdockq
     best_model['pdockq'], _ = compute_pdockq(best_model['model_file'], best_model['json_file'])
@@ -247,7 +245,7 @@ def find_and_score_interfaces(folder_path, distance_cutoff=5.0, pae_cutoff=15.0,
 # process_all_predictions(folder_path, find_and_score_interfaces, output_file='PCM_interface_analysis.csv', ipTM_graphic=False)
 
 # # single interface
-# folder_path = '/Users/poppy/Dropbox/PCM/Msps_TACC/Msps_F4+TACC_F4'
+# folder_path = '/Users/poppy/Dropbox/centriole_screen/Plk4_Ana2/Plk4_F1+Ana2_F2'
 # interface_data = find_and_score_interfaces(folder_path)
 # # Display the interfaces
 # for idx, interface in enumerate(interface_data):
