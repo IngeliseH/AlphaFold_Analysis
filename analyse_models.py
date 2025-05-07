@@ -21,12 +21,12 @@ import re
 import numpy as np
 from pathlib import Path
 from analysis_utility import extract_pae, parse_structure_file, map_chains_and_residues
-from repeatability_from_pdb import get_residue_pairs, find_confident_pairs, calculate_rop_score, calculate_percent_rop
+from repeatability_from_pdb import get_residue_pairs, find_confident_pairs, calculate_rop_score, calculate_percent_rops
 from process_pae import residue_pairs_min_pae, compute_average_interface_pae, compute_pae_evenness
 from iptm_visualisation import extract_iptm
 from pdockq_calc import compute_pdockq
 
-def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_atom=True):
+def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_atom=True, chain_groupings=None):
     """
     Collects essential model data (residue_pairs and confident_pairs) required for ROP calculations.
     Returns a list of model_data dictionaries and a boolean is_pdb indicating file type.
@@ -34,8 +34,10 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
     Parameters:
         - folder_path (str): Path to the folder containing AlphaFold structure files
         - distance_cutoff (float): Distance cutoff for identifying interprotein residue pairs - 
-          recommended to use 5 if all_atom is True, 10 if all_atom is False
+          recommended to use 6 if all_atom is True, 10 if all_atom is False
         - pae_cutoff (float): PAE cutoff for identifying confident residue pairs
+        - all_atom (bool): Whether to use all-atom or CA-only models
+        - chain_groupings (list): Optional list of chain groupings for dimer models
 
     """
     # Determine file extension and set is_pdb flag
@@ -78,9 +80,9 @@ def collect_model_data(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_at
         abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
 
         # Get interprotein residue pairs within distance cutoff (residue_pairs)
-        residue_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom))
+        residue_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom, chain_groupings=chain_groupings))
         confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
-        secondary_pairs = get_residue_pairs(structure_model, distance_cutoff+1, abs_res_lookup_dict, all_atom)
+        secondary_pairs = get_residue_pairs(structure_model, distance_cutoff+1, abs_res_lookup_dict, all_atom, chain_groupings=chain_groupings)
 
         # Store model data
         model_data.append({
@@ -116,25 +118,33 @@ def select_best_model(model_data):
         # If none of the models have any confident pairs, keep the initial top-ranked model
         return top_model
 
-    # Find model(s) with highest ROP score
-    max_rop = max(model['rop'] for model in models_with_confident_pairs)
-    models_with_max_rop = [model for model in models_with_confident_pairs if model['rop'] == max_rop]
-
-    # If multiple models have equal highest ROP, pick the original highest-ranked one
-    best_model = min(models_with_max_rop, key=lambda m: abs(int(m['model_rank']) - int(top_model_rank)))
-
-    # Now compute min_pae for best_model
-    best_model['min_pae'] = residue_pairs_min_pae(best_model['confident_pairs'], best_model['pae_data'])
-
-    # Check if picking this model leads to a significant rise in minPAE
-    min_pae_increase = best_model['min_pae'] - top_model['min_pae']
-
-    # Compute the threshold for significant rise in minPAE
-    min_pae_threshold = max(3, int(np.ceil(0.3 * top_model['min_pae'])))
-
-    if min_pae_increase > min_pae_threshold:
-        # Significant rise in minPAE; keep the original top-ranked model
+    # Find model(s) with highest (ROP score * avg percent ROP)
+    best_model = None
+    highest_score = 0
+    for model in models_with_confident_pairs:
+        score = model['rop'] * model['avg_pct_rop']
+        # score must be at least 10% higher than current best to prevent tiny adjustments - want to keep to original ranking order where possible 
+        if score > highest_score*1.1:
+            best_model = model
+            highest_score = score
+    
+    if not best_model:
+        # If no model has a score 10% higher than the top model, keep the top model
         best_model = top_model
+
+    else:
+        # compute min_pae for best_model, if not already found
+        best_model['min_pae'] = residue_pairs_min_pae(best_model['confident_pairs'], best_model['pae_data'])
+
+        # Check if picking this model leads to a significant rise in minPAE
+        min_pae_increase = best_model['min_pae'] - top_model['min_pae']
+
+        # Compute the threshold for significant rise in minPAE
+        min_pae_threshold = max(3, int(np.ceil(0.3 * top_model['min_pae'])))
+
+        if min_pae_increase > min_pae_threshold:
+            # Significant rise in minPAE; keep the original top-ranked model
+            best_model = top_model
 
     return best_model
 
@@ -191,7 +201,7 @@ def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_ato
     # Calculate percent_rop
     for model in model_data:
         other_model_pairs = [m['confident_pairs'] for m in model_data if m != model]
-    best_model['percent_rop'] = calculate_percent_rop(best_model['confident_pairs'], other_model_pairs)
+    best_model['percent_rop'] = np.mean(val for val in calculate_percent_rops(best_model['confident_pairs'], other_model_pairs) if val > 0.25)
 
     # Compute additional metrics for the best model
     compute_additional_metrics(best_model)

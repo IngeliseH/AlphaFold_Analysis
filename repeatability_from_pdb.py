@@ -14,9 +14,17 @@ FOR GENERAL USE
 get_residue_pairs
 find_confident_pairs
 
+NOTE: while functions from this script are used in the interface analysis script, the
+ROP given by each will likely be different. Interface analysis calculation deals with
+smaller protein sections, and so uses higher thresholds to determine if models are
+consistent. Additionally, the interface analysis script uses a slightly different method,
+where the confident pairs in each interface are comared to a slightly broader predetermined
+set of pairs in each model. This script finds the confident pairs in the top model, and
+then checks the distance between these in each subsequent model.
+
 FOR COMPARING WITH A PARTICULAR MODEL
 calculate_rop_score
-calculate_percent_rop
+calculate_percent_rops
 
 FOR USE WITH SINGLE PREDICTION OR RANK 1 MODEL
 check_distances_across_models
@@ -32,7 +40,7 @@ from scipy.spatial import cKDTree
 from analysis_utility import extract_pae, find_rank_001_files, parse_structure_file, map_chains_and_residues
 from phosphorylation_handling import correct_cif_pae
 
-def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all_atom):
+def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all_atom, chain_groupings=None):
     """
     Identify pairs of residues across different chains that are within a specified
     distance cutoff.
@@ -41,12 +49,15 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
         - structure_input (str, Path or Bio.PDB.Model.Model): Either a file path to the PDB file
           or a protein model object.
         - distance_cutoff (float): Maximum distance between atoms of residues to
-          be considered as interface - recommended to use 5 if all_atom
+          be considered as interface - recommended to use 6 if all_atom
           is True, 10 if all_atom is False
         - abs_res_lookup_dict (dict): Dictionary mapping chain and residue IDs to absolute
           residue IDs.
         - all_atom (bool): True if all atoms should be considered for measuring interface
           distance, False if only CA atoms should be considered.
+        - chain_groupings (list of tuples): Optional list of chain groupings. Chains to treat as one
+          should be written as tuples, e.g. [('A', 'B'), ('C', 'D', 'E'), ('F')]. If not provided, all chains
+          will be treated as separate.
     
     Returns:
         - residue_pairs (list): List of unique residue pairs that are within the distance cutoff,
@@ -72,6 +83,19 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
                 elif 'CA' in res:
                     residues.append((abs_res_id, res['CA'].coord))
         chain_residues[chain.id] = residues
+    
+    # If chain_groupings is provided, group residues accordingly
+    if chain_groupings:
+        grouped_chain_residues = {}
+        for group in chain_groupings:
+            group_residues = []
+            for chain_id in group:
+                if chain_id in chain_residues:
+                    group_residues.extend(chain_residues[chain_id])
+                else:
+                    print(f"Warning: Chain {chain_id} not found in the structure.")
+            grouped_chain_residues[group] = group_residues
+        chain_residues = grouped_chain_residues
 
     unique_residue_pairs = set()  # Track unique residue pairs
     chain_ids = list(chain_residues.keys())
@@ -178,7 +202,7 @@ def calculate_rop_score(residue_pairs, other_models_residue_pairs, threshold = 0
             rop_score += 1
     return rop_score
 
-def calculate_percent_rop(residue_pairs, other_models_residue_pairs, threshold = 0.25):
+def calculate_percent_rops(residue_pairs, other_models_residue_pairs):
     """
     Calculates percent_rop for a set of residue pairs in a model, based on the
     percentage of these pairs that are also present in other models.
@@ -187,22 +211,23 @@ def calculate_percent_rop(residue_pairs, other_models_residue_pairs, threshold =
         - residue_pairs (set): Set of residue pairs in model of interest
         - other_models_residue_pairs (list): List of sets of residue pairs from other models
           (should NOT include the model being compared)
-        - threshold (float): Minimum percentage of residue pairs that must be present in
-          each other model for the interface to be considered
 
     Returns:
-        - percent_rop (float): Average percentage of residue pairs from the model that are
-          also present in other models surpassing threshold
+        - percentages (list): List of percentages of residue pairs from the model that are
+          also present in each other model
     """
     if not residue_pairs or not other_models_residue_pairs:
         return 0
+    if not isinstance(residue_pairs, set):
+        residue_pairs = set(residue_pairs)
+    if not all(isinstance(other_pairs, set) for other_pairs in other_models_residue_pairs):
+        other_models_residue_pairs = [set(other_pairs) for other_pairs in other_models_residue_pairs]
     percentages = []
     for other_model in other_models_residue_pairs:
         shared_pairs = residue_pairs & other_model
         percentage = len(shared_pairs) / len(residue_pairs) if residue_pairs else 0
-        if percentage >= threshold:
-            percentages.append(percentage)
-    return np.mean(percentages) if percentages else 0
+        percentages.append(percentage)
+    return percentages
 
 # Functions for use when only looking at rank 1 model, or for quickly checking a single prediction
 def check_distances_across_models(folder_path, confident_pairs, distance_cutoff, abs_res_lookup_dict, is_pdb, all_atom):
@@ -355,6 +380,7 @@ def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all
 
 ####################################################################################################
 # Example usage
+# OLD PDB/CIF FILE ANALYSIS
 # pdb files (AF2)
 #folder_path = "data/Sak_Sas6/Sak_D3+Sas6_D1"
 #num_consistent, level_consistent = measure_repeatability(folder_path, distance_cutoff=5, pae_cutoff=10, all_atom=True)
@@ -362,3 +388,40 @@ def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all
 # cif files (AF3) - run with same command as above, adjustment is internal
 #folder_path = "fold_ana2_flp_sak_fl"
 #num_consistent, level_consistent = measure_repeatability(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)
+
+# # NEW MODEL ANALYSIS
+# from pathlib import Path
+# from analysis_utility import extract_pae, parse_structure_file, map_chains_and_residues, find_rank_001_files
+# folder_path = "data/Sak_Sas6/Sak_D3+Sas6_D1"
+# distance_cutoff = 5.0  # Distance cutoff for interface residue proximity
+# pae_cutoff = 15.0  # Confidence cutoff for PAE
+# all_atom = True  # Whether to use all atom coordinates or just C-alpha
+# # Load the top-ranked model
+# rank1_structure_file, rank1_json_file, _, _, _ = find_rank_001_files(folder_path)
+# # Parse the structure and extract PAE data
+# rank1_model = parse_structure_file(rank1_structure_file, is_pdb=True)
+# pae_data = extract_pae(rank1_json_file)
+# # Map chains and residues
+# chain_residue_map = map_chains_and_residues(rank1_model)
+# abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
+
+# # Find residue pairs within the distance cutoff
+# residue_pairs = get_residue_pairs(rank1_model, distance_cutoff, abs_res_lookup_dict, all_atom)
+
+# # Find confident pairs based on PAE data
+# confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
+# print(f"Confident interface residue pairs in the top-ranked model: {confident_pairs}")
+# # Check distances of confident pairs across other models in the folder
+# model_consistency_scores, num_consistent_models, average_consistency_level, consistent_pairs = check_distances_across_models(
+#     folder_path, confident_pairs, distance_cutoff, abs_res_lookup_dict, is_pdb=True, all_atom=all_atom
+# )
+# print(f"Model consistency scores: {model_consistency_scores}")
+# print(f"Number of models >25% consistent: {num_consistent_models}")
+# print(f"Average consistency level: {average_consistency_level:.2f}")
+# print(f"Consistent residue pairs across models: {consistent_pairs}")
+# # Measure the repeatability of interface residue predictions
+# num_consistent, level_consistent = measure_repeatability(
+#     folder_path, distance_cutoff=distance_cutoff, pae_cutoff=pae_cutoff, all_atom=all_atom
+# )
+# print(f"Number of models >25% consistent: {num_consistent}")
+# print(f"Average consistency level for consistent models: {level_consistent:.2f}")

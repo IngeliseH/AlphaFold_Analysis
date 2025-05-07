@@ -174,10 +174,14 @@ def modify_bfactors(protein_model, residue_scores_list, output, default=0.0):
     Returns:
         None, but saves the modified PDB file.
     """
-    # Flatten the residue similarity scores into a single list
-    all_scores = []
-    for scores in residue_scores_list:
-        all_scores.extend(scores)
+    # Check if any entry in res scores is list - ie if res scores need to be flattened
+    if any(isinstance(i, list) for i in residue_scores_list):
+        # Flatten the residue similarity scores into a single list
+        all_scores = []
+        for scores in residue_scores_list:
+            all_scores.extend(scores)
+    else:
+        all_scores = residue_scores_list
     
     residue_counter = 0
     for chain in protein_model.get_chains():
@@ -218,24 +222,21 @@ def readable_ranges(absolute_pairs, structure_model, abs_res_lookup_dict=None):
 
     # Reverse lookup to map absolute IDs to chain-specific IDs
     inv_abs_res_lookup_dict = {v: k for k, v in abs_res_lookup_dict.items()}
-    chain_ids = [chain.id for chain in structure_model.get_chains()]
+    chains = list(structure_model.get_chains())
+    
+    # Initialize a dictionary to store residues for each chain
+    residues_by_chain = {chain.id: set() for chain in chains}
 
-    # Convert each pair to chain-specific IDs
+    # Convert each pair to chain-specific IDs and collect residues by chain
     chain_specific_pairs = []
-    residues_by_protein = {'Protein1': set(), 'Protein2': set()}
-
     for res1, res2 in absolute_pairs:
         chain1, res_num1 = inv_abs_res_lookup_dict[res1]
         chain2, res_num2 = inv_abs_res_lookup_dict[res2]
         chain_specific_pairs.append((f"{chain1} {res_num1}", f"{chain2} {res_num2}"))
 
-        # Group residues by protein based on chain
-        if chain1 == chain_ids[0]:  # Assuming chain1 corresponds to Protein1
-            residues_by_protein['Protein1'].add(res_num1)
-            residues_by_protein['Protein2'].add(res_num2)
-        else:
-            residues_by_protein['Protein1'].add(res_num2)
-            residues_by_protein['Protein2'].add(res_num1)
+        # Add residues to their respective chains
+        residues_by_chain[chain1].add(res_num1)
+        residues_by_chain[chain2].add(res_num2)
 
     # Format residue ranges for simplified output
     def format_ranges(numbers):
@@ -253,8 +254,9 @@ def readable_ranges(absolute_pairs, structure_model, abs_res_lookup_dict=None):
         ranges.append(f"{start}-{end}" if start != end else str(start))
         return ", ".join(map(str, ranges))
 
-    # Add chain-specific numbering information as an attribute
-    return {
-        'Protein1': format_ranges(residues_by_protein['Protein1']),
-        'Protein2': format_ranges(residues_by_protein['Protein2'])
-    }
+    # Create the output dictionary with formatted ranges for each chain
+    result = {}
+    for chain_id in sorted(residues_by_chain.keys()):
+        result[f"Chain {chain_id}"] = format_ranges(residues_by_chain[chain_id])
+    
+    return result
