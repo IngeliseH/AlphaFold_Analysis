@@ -44,11 +44,30 @@ def process_all_predictions(
         for protein_pair_folder in protein_pair_folders:
             protein_pair_path = os.path.join(base_folder, protein_pair_folder)
             try:
+                if '_output' in protein_pair_folder: # ignore suffix '_output' if present
+                    protein_pair_folder = protein_pair_folder.split('_output')[0]
+
                 # Determine the separator to split the folder name
                 if '+' in protein_pair_folder:
                     protein1, protein2 = protein_pair_folder.split('+')
                 else:
-                    protein1, protein2 = protein_pair_folder.split('_', 1)
+                    parts = protein_pair_folder.split('_')
+                    # Determine the pattern: p1_p2, p1_dimer_p2, p1_p2_dimer, or p1_dimer_p2_dimer
+                    if len(parts) == 2:  # p1_p2
+                        protein1 = parts[0]
+                        protein2 = parts[1]
+                    elif len(parts) == 3:
+                        if parts[1] == 'dimer':  # p1_dimer_p2
+                            protein1 = f"{parts[0]}_dimer"
+                            protein2 = parts[2]
+                        else:  # p1_p2_dimer
+                            protein1 = parts[0]
+                            protein2 = f"{parts[1]}_dimer"
+                    elif len(parts) == 4:  # p1_dimer_p2_dimer
+                        protein1 = f"{parts[0]}_dimer"
+                        protein2 = f"{parts[2]}_dimer"
+                    else:
+                        raise ValueError(f"Invalid folder name format: {protein_pair_folder}")
 
                 # Look for domain pair folders
                 domain_folders = [
@@ -59,6 +78,9 @@ def process_all_predictions(
                 if analysis_function:
                     for domain_path in domain_folders:
                         domain_pair = os.path.basename(domain_path)
+                        # if present, remove '_output' from the domain pair name
+                        if '_output' in domain_pair:
+                            domain_pair = domain_pair.split('_output')[0]
                         protein1_domain, protein2_domain = domain_pair.split('+')
 
                         pbar.set_postfix_str(f"{protein1}:{protein1_domain} - {protein2}:{protein2_domain}")
@@ -78,7 +100,8 @@ def process_all_predictions(
                                 csv_entry_copy = csv_entry.copy()
                                 csv_entry_copy.update({
                                     k: v for k, v in item.items()
-                                    if k not in ['json_file', 'model_file', 'structure_model', 'residue_pairs', 'abs_res_lookup_dict', 'pae_data', 'confident_pairs']
+                                    # removed residue_pairs and confident_pairs from this list to make further analysis easier
+                                    if k not in ['json_file', 'model_file', 'structure_model', 'abs_res_lookup_dict', 'pae_data']
                                 })
                                 all_data.append(csv_entry_copy)
                         except Exception as e:
