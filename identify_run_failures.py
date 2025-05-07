@@ -9,6 +9,7 @@ import os
 import csv
 import pandas as pd
 from analysis_utility import find_rank_001_files
+from tqdm import tqdm
 
 def find_missing_structure_files(base_folder, **kwargs):
     """
@@ -36,17 +37,21 @@ def find_missing_structure_files(base_folder, **kwargs):
         writer = csv.writer(file)
         writer.writerow(headers)  # Write the header row
 
-    # Walk through the base folder containing all protein pair folders
-    for protein_pair_folder in os.listdir(base_folder):
-        protein_pair_path = os.path.join(base_folder, protein_pair_folder)
-        if os.path.isdir(protein_pair_path):
+    # Get the list of protein pair folders
+    protein_pair_folders = [f for f in os.listdir(base_folder) if os.path.isdir(os.path.join(base_folder, f))]
+
+    # Initialize the progress bar
+    with tqdm(total=len(protein_pair_folders), desc="Finding missing structure files") as pbar:
+        # Walk through the base folder containing all protein pair folders
+        for protein_pair_folder in protein_pair_folders:
+            protein_pair_path = os.path.join(base_folder, protein_pair_folder)
             try:
                 # Determine the separator to split the folder name
                 if '+' in protein_pair_folder:
                     protein1, protein2 = protein_pair_folder.split('+')
                 else:
                     protein1, protein2 = protein_pair_folder.split('_', 1)
-                print(f"Checking {protein1} and {protein2}...")
+                #print(f"Checking {protein1} and {protein2}...")
 
                 # Look for domain pair folders either directly within the protein pair folder or within a 'Results' subfolder
                 domain_folders = []
@@ -88,6 +93,9 @@ def find_missing_structure_files(base_folder, **kwargs):
                 
             except Exception as e:
                 print(f"Error processing protein pair {protein1} and {protein2}: {e}")
+            
+            # Update the progress bar
+            pbar.update(1)
     
     if save_to_csv:
         file.close()

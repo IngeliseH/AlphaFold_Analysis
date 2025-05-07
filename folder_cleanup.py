@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+from tqdm import tqdm
 
 def tidy_folder_structure(base_folder):
     """
@@ -26,40 +27,35 @@ def tidy_folder_structure(base_folder):
         Once a folder is correctly formatted, rerunning the function will not move any files or
         remove any directories.
     """
-    # Go through each protein pair folder in the base folder
+    # Collect all colabfold_*_tmp folders to process
+    colabfold_tmp_folders = []
     for protein_pair_folder in os.listdir(base_folder):
         protein_pair_path = os.path.join(base_folder, protein_pair_folder)
         if os.path.isdir(protein_pair_path):
-            # Go through each fragment pair folder in the protein pair folder
             for fragment_pair_folder in os.listdir(protein_pair_path):
                 fragment_pair_path = os.path.join(protein_pair_path, fragment_pair_folder)
                 if os.path.isdir(fragment_pair_path):
-                    # Now traverse down to find the colabfold_*_tmp folder
                     for root, dirs, files in os.walk(fragment_pair_path):
                         if os.path.basename(root).startswith('colabfold_') and root.endswith('_tmp'):
-                            # Move each file from the colabfold_*_tmp folder to the fragment pair folder
-                            for file in files:
-                                file_path = os.path.join(root, file)
-                                destination_path = os.path.join(fragment_pair_path, file)
-                                
-                                shutil.move(file_path, destination_path)
-                                print(f'Moved file {file_path} to {destination_path}')
-                            
-                            # Move each subdirectory from the colabfold_*_tmp folder to the fragment pair folder
-                            for dir_name in dirs:
-                                dir_path = os.path.join(root, dir_name)
-                                destination_path = os.path.join(fragment_pair_path, dir_name)
-                                
-                                shutil.move(dir_path, destination_path)
-                    
-                    # Remove empty directories within the fragment pair path
-                    for root, dirs, files in os.walk(fragment_pair_path, topdown=False):
-                        if not os.listdir(root):
-                            try:
-                                os.rmdir(root)
-                                print(f'Removed empty directory {root}')
-                            except OSError as e:
-                                print(f"Error removing directory {root}: {e}")
+                            colabfold_tmp_folders.append((root, fragment_pair_path))
+
+    # Process each colabfold_*_tmp folder with a progress bar
+    for root, fragment_pair_path in tqdm(colabfold_tmp_folders, desc="Tidying folder structure"):
+        for file in os.listdir(root):
+            file_path = os.path.join(root, file)
+            destination_path = os.path.join(fragment_pair_path, file)
+            if os.path.isfile(file_path):
+                shutil.move(file_path, destination_path)
+            elif os.path.isdir(file_path):
+                shutil.move(file_path, destination_path)
+
+        # Remove empty directories within the fragment pair path
+        for root_dir, dirs, files in os.walk(fragment_pair_path, topdown=False):
+            if not os.listdir(root_dir):
+                try:
+                    os.rmdir(root_dir)
+                except OSError as e:
+                    print(f"Error removing directory {root_dir}: {e}")
 
 def delete_files_matching_pattern(folder_path, pattern):
     """

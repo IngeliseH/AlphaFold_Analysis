@@ -28,12 +28,17 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
     # Apply filtering criteria if provided
     if criteria:
         for column, condition in criteria.items():
+            # if an item has no value for the specified column, remove it
+            df = df[df[column].notna()]
+            # apply the condition to the column
             df = df[df[column].apply(condition)]
         if df.empty:
-            return "No predictions meet the specified criteria."
+            print("No predictions meet the specified criteria.")
+            return None
     
     # initialise output df
-    output_df = pd.DataFrame(columns=[source, target, weight] + include)
+    desired_cols = [source, target, weight] + include
+    output_df = pd.DataFrame(columns=desired_cols)
     if weight == 'rop':
         # find set of integer values of rop that meet criteria eg >= 2
         rop_values = df['rop'].unique()
@@ -52,9 +57,13 @@ def gephi_format(input_csv, source='Protein1', target='Protein2', weight='rop', 
                         # check value of priority column for each and add entry with highest val if priority_type is max or lowest if min
                         if priority_type == 'max':
                             max_val = df_pair[priority].max()
+                            # remove unwanted columns
+                            df_pair = df_pair[df_pair[priority] == max_val].iloc[[0]][desired_cols]
                             output_df = pd.concat([output_df, df_pair[df_pair[priority] == max_val].iloc[[0]]])
                         elif priority_type == 'min':
                             min_val = df_pair[priority].min()
+                            # remove unwanted columns
+                            df_pair = df_pair[df_pair[priority] == min_val].iloc[[0]][desired_cols]
                             output_df = pd.concat([output_df, df_pair[df_pair[priority] == min_val].iloc[[0]]])
         # rename columns
         output_df = output_df.rename(columns={source: 'Source', target: 'Target', weight: 'Weight'})
