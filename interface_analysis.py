@@ -246,10 +246,16 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         folder = folder.split('_output')[0]
     # Split into the two protein parts
     parts = folder.split('+')
+    if len(parts) < 2: # naming system used in FL screen in AF3 is fold_protein1_fl_protein2_fl
+        parts = folder.split('_')
+        parts = [p for p in parts if p.lower() not in ['fold', 'fl']]
 
     # Check each protein part for 'dimer'
-    p1_is_dimer = '_dimer_' in parts[0]
+    p1_is_dimer = ('_dimer_' in parts[0] or parts[1] == 'dimer') and not (len(parts) == 2)
     p2_is_dimer = '_dimer_' in parts[1]
+    if len(parts) >= 3:
+        if parts[2] == 'dimer':
+            p2_is_dimer = True
 
     # Determine chain groupings based on dimer presence
     chain_groupings = None
@@ -288,7 +294,7 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         # Compute pdockq
         best_model['pdockq'], _ = compute_pdockq(best_model['model_file'], best_model['json_file'])  
     # Extract iptm
-    best_model['iptm'] = extract_iptm(best_model['json_file'], best_model['model_rank'])
+    best_model['iptm'] = extract_iptm(best_model['log_file'], best_model['model_rank'])
 
     if not best_model['residue_pairs']:
         return best_model

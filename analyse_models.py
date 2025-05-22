@@ -63,8 +63,12 @@ def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_at
         structure_model = parse_structure_file(model_file, is_pdb)
 
         if is_pdb:
-            # Adjust JSON file name if it includes 'unrelaxed_' prefix
-            json_file = model_file.with_name(model_file.name.replace("unrelaxed", "scores")).with_suffix('.json')
+            if "alphafold2" in model_file.name:
+                # Adjust JSON file name if it includes 'unrelaxed_' prefix
+                json_file = model_file.with_name(model_file.name.replace("unrelaxed", "scores")).with_suffix('.json')
+            else:
+                # In original screen data (pre AF2), json file is same name as model file with '_scores' at end, and .json suffix
+                json_file = model_file.with_name(model_file.name.replace(".pdb", "_scores.json"))
             # iptm data is in json file
             log_file = json_file
         else:

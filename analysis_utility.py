@@ -10,6 +10,7 @@ determine_chain_lengths
 extract_pae
 modify_bfactors
 readable_ranges
+expand_loc_range
 """
 import json
 import numpy as np
@@ -260,3 +261,33 @@ def readable_ranges(absolute_pairs, structure_model, abs_res_lookup_dict=None):
         result[f"Chain {chain_id}"] = format_ranges(residues_by_chain[chain_id])
     
     return result
+
+def expand_loc_range(loc_range):
+    """
+    Expand a location range string (eg '1-5,7,9-10') into a list of integers (eg [1, 2, 3, 4, 5, 7, 9, 10])
+    
+    Parameters:
+        - loc_range (str, dict or list of dicts): The location range string or dictionary to expand.
+    
+    Returns:
+        - expanded ranges, in same format as input
+    """
+    def expand(loc_range):
+        locs = loc_range.split(',')
+        expanded_locs = []
+        for loc in locs:
+            if '-' in loc:
+                start, end = loc.split('-')
+                expanded_locs.extend(range(int(start), int(end)+1))
+            else:
+                expanded_locs.append(int(loc))
+        return expanded_locs
+    
+    if isinstance(loc_range, str): # one range eg '1-5,7,9-10'
+        return expand(loc_range)
+    elif isinstance(loc_range, dict): # eg {'Protein1': '1-5,7,9-10', 'Protein2': '1-5,7,9-10'}
+        return {key: expand(value) for key, value in loc_range.items()}
+    elif isinstance(loc_range, list) and all(isinstance(i, dict) for i in loc_range): # eg multiple interfaces combined into one list
+        # expand each values for each dict in the list and return a list of dicts
+        return [{key: expand(value) for key, value in interface.items()} for interface in loc_range]
+
