@@ -103,7 +103,7 @@ def parse_cif_atm_record(cif_file):
     doc = gemmi.cif.read(str(cif_file))
     block = doc.sole_block()
 
-    print("Block categories:", block.get_mmcif_category_names())
+    #print("Block categories:", block.get_mmcif_category_names())
 
     atom_site = block.find(['_atom_site.label_asym_id', '_atom_site.label_atom_id', '_atom_site.label_comp_id',
                             '_atom_site.label_seq_id', '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z'])

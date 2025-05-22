@@ -86,6 +86,30 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
     
     # If chain_groupings is provided, group residues accordingly
     if chain_groupings:
+        # try to ensure chain ids in chain groupings match those in the structure
+        # eg structure created with early AF version may have B and C chains instead of A and B
+        chain_ids = sorted([key for key in chain_residues.keys()])
+        grouped_chain_list = sorted([chain for group in chain_groupings for chain in group])
+        if grouped_chain_list and chain_ids and grouped_chain_list[0] == 'A' and chain_ids[0] == 'B':
+            updated_chain_groupings = []
+            updated_chain_group_list = []
+            for current_group in chain_groupings:
+                new_group_elements = []
+                for chain_identifier in current_group: # Renamed 'id' to 'chain_identifier'
+                    # shift by 1 letter
+                    shifted_chain_id = chr(ord(chain_identifier) + 1)
+                    new_group_elements.append(shifted_chain_id)
+                    updated_chain_group_list.append(shifted_chain_id)
+                updated_chain_groupings.append(tuple(new_group_elements))
+            chain_groupings = updated_chain_groupings # Reassign to update chain_groupings
+            grouped_chain_list = sorted(updated_chain_group_list)
+        
+        # Add any unaccounted for chains to the groupings
+        if len(grouped_chain_list) < len(chain_ids):
+            for chain_id in chain_ids:
+                if chain_id not in grouped_chain_list:
+                    chain_groupings.append(chain_id)
+
         grouped_chain_residues = {}
         for group in chain_groupings:
             group_residues = []
