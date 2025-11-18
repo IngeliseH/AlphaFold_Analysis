@@ -18,7 +18,7 @@ from iptm_visualisation import extract_iptm
 from process_pae import compute_average_interface_pae, compute_pae_evenness, residue_pairs_min_pae
 from pdockq_calc import compute_pdockq
 from analyse_models import collect_model_data, select_best_model
-from repeatability_from_pdb import calculate_rop_score, calculate_percent_rops
+from repeatability_from_pdb import calculate_rop_score, calculate_rop_score, calculate_percent_rops
 from analysis_utility import readable_ranges
 #from interface_character import charge_score, hydrophobicity_score
 
@@ -192,39 +192,6 @@ def interface_confidence(avg_pae, min_pae):
         return 'medium'
     return 'low'
 
-def calculate_rop_score(residue_pairs, other_models_residue_pairs, threshold = 0.25):
-    """
-    Calculates the ROP score for a set of residue pairs in a model, based on the
-    percentage of these pairs that are also present in other models.
-
-    Parameters:
-        - residue_pairs (set): Set of residue pairs
-        - other_models_residue_pairs (list): List of sets of residue pairs from other models
-          (should NOT include the model being compared)
-        - threshold (float): Minimum percentage of residue pairs that must be present in
-          each other model for the interface to be considered consistent
-    Returns:
-        - rop_score (int): Number of models where the percentage of residue pairs from the
-          model that are also present in the other model is greater than the threshold.
-    """
-    if not residue_pairs or not other_models_residue_pairs:
-        return 0
-
-    if not isinstance(residue_pairs, set):
-        residue_pairs = set(residue_pairs)
-
-    if not all(isinstance(other_pairs, set) for other_pairs in other_models_residue_pairs):
-        other_models_residue_pairs = [set(other_pairs) for other_pairs in other_models_residue_pairs]
-
-    rop_score = 0
-    for other_model in other_models_residue_pairs:
-        # Compute the percentage of model's confident_pairs present in other_model's residue_pairs
-        shared_pairs = residue_pairs & other_model
-        percentage = len(shared_pairs) / len(residue_pairs)
-        if percentage >= threshold:
-            rop_score += 1
-    return rop_score
-
 def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separation_distance = 5.0, interprotein_pae=15.0, intraprotein_pae=15.0,  all_atom=True):
     """
     Main function that selects and scores the best model.
@@ -251,11 +218,23 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         parts = [p for p in parts if p.lower() not in ['fold', 'fl']]
 
     # Check each protein part for 'dimer'
-    p1_is_dimer = ('_dimer_' in parts[0] or parts[1] == 'dimer') and not (len(parts) == 2)
+    p1_is_dimer = '_dimer_' in parts[0] or (parts[1] == 'dimer' and not len(parts) == 2)
     p2_is_dimer = '_dimer_' in parts[1]
     if len(parts) >= 3:
         if parts[2] == 'dimer':
             p2_is_dimer = True
+    if "dimer" in folder and not (p1_is_dimer or p2_is_dimer):
+        if "fold" not in folder: # ok in case of af3 predictions of single diimerised fragment (naming format = fold_p1_fl_dimer)
+            raise ValueError(f"Folder name '{folder}' indicates a dimer, but no dimer detected in parts: {parts}. Please check code and folder naming conventions to make sure dimers are correctly interpreted.")
+    # if dimer is in name twice
+    elif folder.count('dimer') > 1 and not (p1_is_dimer and p2_is_dimer):
+        raise ValueError(f"Folder name '{folder}' indicates two dimers, but only one dimer detected in parts: {parts}. Please check code and folder naming conventions to make sure dimers are correctly interpreted.")
+    elif folder.count('dimer') == 1 and (p1_is_dimer and p2_is_dimer):
+        raise ValueError(f"Folder name '{folder}' indicates a single dimer, but both parts detected as dimers: {parts}. Please check code and folder naming conventions to make sure dimers are correctly interpreted.")
+    elif folder.count('dimer') > 2:
+        raise ValueError(f"Folder name '{folder}' indicates more than two dimers - not yet supported.")
+    elif folder.count('dimer') == 0 and (p1_is_dimer or p2_is_dimer):
+        raise ValueError(f"Folder name '{folder}' indicates no dimers, but one or both parts detected as dimers: {parts}. Please check code and folder naming conventions to make sure dimers are correctly interpreted.")
 
     # Determine chain groupings based on dimer presence
     chain_groupings = None
