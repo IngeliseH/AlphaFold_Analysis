@@ -25,6 +25,10 @@ then checks the distance between these in each subsequent model.
 FOR COMPARING WITH A PARTICULAR MODEL
 calculate_rop_score
 calculate_percent_rops
+HELPERS FOR THE ABOVE:
+convert_pairs_to_relative
+get_chain_permutations
+convert_to_updated_absolute
 
 FOR USE WITH SINGLE PREDICTION OR RANK 1 MODEL
 check_distances_across_models
@@ -37,6 +41,7 @@ import numpy as np
 from pathlib import Path
 from Bio.PDB import Model
 from scipy.spatial import cKDTree
+from itertools import permutations
 from analysis_utility import extract_pae, find_rank_001_files, parse_structure_file, map_chains_and_residues
 from phosphorylation_handling import correct_cif_pae
 
@@ -193,7 +198,41 @@ def find_confident_pairs(residue_pairs, pae_data, pae_cutoff):
     return confident_pairs
 
 # Functions for calculating rop of a specfic rank model, not assumed to be rank 1
-def calculate_rop_score(residue_pairs, other_models_residue_pairs, threshold = 0.25):
+# Helpers for calculate_rop_score and calculate_percent_rops
+def convert_pairs_to_relative(pairs, inv_abs_res_lookup_dict):
+    relative_pairs = set()
+    for res1_id, res2_id in pairs:
+        relative_pairs.add((inv_abs_res_lookup_dict[res1_id], inv_abs_res_lookup_dict[res2_id]))
+    return relative_pairs
+
+def get_chain_permutations(chain_groupings):
+    first_group_permutations = list(permutations(chain_groupings[0]))
+    second_group_permutations = list(permutations(chain_groupings[1]))
+
+    all_permutations = []
+    for perm1 in first_group_permutations:
+        for perm2 in second_group_permutations:
+            all_permutations.append((perm1, perm2))
+    return all_permutations
+print(f"Permutations to check: {get_chain_permutations([('A','B'), ('C','D')])}")
+
+def convert_to_updated_absolute(relative_pairs, abs_res_lookup_dict, chain_groupings, permutation):
+    # Create a mapping from original chain IDs to permuted chain IDs
+    chain_mapping = {}
+    for original_chain, permuted_chain in zip(chain_groupings[0], permutation[0]):
+        chain_mapping[original_chain] = permuted_chain
+    for original_chain, permuted_chain in zip(chain_groupings[1], permutation[1]):
+        chain_mapping[original_chain] = permuted_chain
+
+    # Convert relative residue pairs to updated and absolute using the chain mapping
+    converted_absolute_pairs = set()
+    for (chain1_id, res1_num), (chain2_id, res2_num) in relative_pairs:
+        new_res1_id = abs_res_lookup_dict.get((chain_mapping.get(chain1_id, chain1_id), res1_num))
+        new_res2_id = abs_res_lookup_dict.get((chain_mapping.get(chain2_id, chain2_id), res2_num))
+        converted_absolute_pairs.add((new_res1_id, new_res2_id))
+    return converted_absolute_pairs
+
+def calculate_rop_score(residue_pairs, other_models_residue_pairs, abs_res_lookup_dict=None, chain_groupings = None, threshold = 0.25):
     """
     Calculates the ROP score for a set of residue pairs in a model, based on the
     percentage of these pairs that are also present in other models.
@@ -216,17 +255,37 @@ def calculate_rop_score(residue_pairs, other_models_residue_pairs, threshold = 0
 
     if not all(isinstance(other_pairs, set) for other_pairs in other_models_residue_pairs):
         other_models_residue_pairs = [set(other_pairs) for other_pairs in other_models_residue_pairs]
+    
+    if not chain_groupings:
+        print("No chain groupings provided to ROP calculator - should update this for more accurate results.")
 
     rop_score = 0
     for other_model in other_models_residue_pairs:
-        # Compute the percentage of model's confident_pairs present in other_model's residue_pairs
-        shared_pairs = residue_pairs & other_model
-        percentage = len(shared_pairs) / len(residue_pairs)
-        if percentage >= threshold:
-            rop_score += 1
+        if not chain_groupings or len(chain_groupings[0]) <= 1 and len(chain_groupings[1]) <= 1:
+            # Compute the percentage of model's confident_pairs present in other_model's residue_pairs
+            shared_pairs = residue_pairs & other_model
+            percentage = len(shared_pairs) / len(residue_pairs)
+            if percentage >= threshold:
+                rop_score += 1
+
+        else: # would also work for basic chain groupings, but saves time to separate
+            if not abs_res_lookup_dict:
+                raise ValueError("abs_res_lookup_dict must be provided when chain groupings are used.")
+            inv_abs_res_lookup_dict = {v: k for k, v in abs_res_lookup_dict.items()}
+            
+            other_model_relative_pairs = convert_pairs_to_relative(other_model, inv_abs_res_lookup_dict)
+            
+            permutations = get_chain_permutations(chain_groupings)
+            for permutation in permutations:
+                converted_other_model_pairs = convert_to_updated_absolute(other_model_relative_pairs, abs_res_lookup_dict, chain_groupings, permutation)
+                shared_pairs = residue_pairs & converted_other_model_pairs
+                percentage = len(shared_pairs) / len(residue_pairs)
+                if percentage >= threshold:
+                    rop_score += 1
+                    break
     return rop_score
 
-def calculate_percent_rops(residue_pairs, other_models_residue_pairs):
+def calculate_percent_rops(residue_pairs, other_models_residue_pairs, abs_res_lookup_dict = None, chain_groupings = None):
     """
     Calculates percent_rop for a set of residue pairs in a model, based on the
     percentage of these pairs that are also present in other models.
@@ -242,15 +301,44 @@ def calculate_percent_rops(residue_pairs, other_models_residue_pairs):
     """
     if not residue_pairs or not other_models_residue_pairs:
         return 0
+
     if not isinstance(residue_pairs, set):
         residue_pairs = set(residue_pairs)
+
     if not all(isinstance(other_pairs, set) for other_pairs in other_models_residue_pairs):
         other_models_residue_pairs = [set(other_pairs) for other_pairs in other_models_residue_pairs]
+
+    if not chain_groupings:
+        print("No chain groupings provided to ROP percentage calculator - should update this for more accurate results.")
+    
     percentages = []
     for other_model in other_models_residue_pairs:
         shared_pairs = residue_pairs & other_model
-        percentage = len(shared_pairs) / len(residue_pairs) if residue_pairs else 0
+        percentage = len(shared_pairs) / len(residue_pairs)
         percentages.append(percentage)
+
+        if not chain_groupings or len(chain_groupings[0]) <= 1 and len(chain_groupings[1]) <= 1:
+            # Compute the percentage of model's confident_pairs present in other_model's residue_pairs
+            shared_pairs = residue_pairs & other_model
+            percentage = len(shared_pairs) / len(residue_pairs)
+
+        else: # would also work for basic chain groupings, but saves time to separate
+            if not abs_res_lookup_dict:
+                raise ValueError("abs_res_lookup_dict must be provided when chain groupings are used.")
+            inv_abs_res_lookup_dict = {v: k for k, v in abs_res_lookup_dict.items()}
+            
+            other_model_relative_pairs = convert_pairs_to_relative(other_model, inv_abs_res_lookup_dict)
+            permutations = get_chain_permutations(chain_groupings)
+
+            best_permutation_percentage = 0
+            for permutation in permutations:
+                converted_other_model_pairs = convert_to_updated_absolute(other_model_relative_pairs, abs_res_lookup_dict, chain_groupings, permutation)
+
+                shared_pairs = residue_pairs & converted_other_model_pairs
+                percentage = len(shared_pairs) / len(residue_pairs)
+                if percentage > best_permutation_percentage:
+                    best_permutation_percentage = percentage
+            percentages.append(best_permutation_percentage)
     return percentages
 
 # Functions for use when only looking at rank 1 model, or for quickly checking a single prediction

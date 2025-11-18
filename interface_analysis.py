@@ -18,7 +18,7 @@ from iptm_visualisation import extract_iptm
 from process_pae import compute_average_interface_pae, compute_pae_evenness, residue_pairs_min_pae
 from pdockq_calc import compute_pdockq
 from analyse_models import collect_model_data, select_best_model
-from repeatability_from_pdb import calculate_rop_score, calculate_rop_score, calculate_percent_rops
+from repeatability_from_pdb import calculate_rop_score, calculate_percent_rops
 from analysis_utility import readable_ranges
 #from interface_character import charge_score, hydrophobicity_score
 
@@ -255,13 +255,9 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
     # Calculate ROP scores
     for model in model_data:
         other_model_pairs = [m['secondary_pairs'] for m in model_data if m != model]
-        model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs)
-        model['avg_pct_rop'] = np.mean(calculate_percent_rops(model['confident_pairs'], other_model_pairs))
-        # new - %rop
-        #for other_model in other_model_pairs:
-        #    shared_pairs = model['confident_pairs'] & set(other_model)
-        #    percentage = len(shared_pairs) / len(model['confident_pairs'])
-        #    print(percentage)
+        model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs, model['abs_res_lookup_dict'], chain_groupings=chain_groupings, threshold=0.7)
+        model['avg_pct_rop'] = np.mean(calculate_percent_rops(model['confident_pairs'], other_model_pairs, model['abs_res_lookup_dict'], chain_groupings=chain_groupings))
+        # model['rop'] * model['avg_pct_rop'] is used to select best model
 
     # Select the best model
     best_model = select_best_model(model_data)
@@ -294,12 +290,13 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
     for interface in interfaces:
         #print(f"new_interface: {interface['residue_pairs']}")
         # update interface with data from best_model - EXCEPT 'residue_pairs' as this will override interface residue pairs if left in
-        interface.update({k: v for k, v in best_model.items() if k not in ['residue_pairs']})
+        interface.update({k: v for k, v in best_model.items() if k not in ['residue_pairs', 'avg_pct_rop', 'rop']})
         interface['avg_pae'] = compute_average_interface_pae(interface['residue_pairs'], best_model['pae_data'])
         interface['confidence_class'] = interface_confidence(interface['avg_pae'], interface['min_pae'])
         interface['min_pae'] = residue_pairs_min_pae(interface['residue_pairs'], best_model['pae_data'])
         interface['location'] = readable_ranges(interface['residue_pairs'], best_model['structure_model'], best_model['abs_res_lookup_dict'])
-        interface['rop'] = calculate_rop_score(interface['residue_pairs'], other_model_pairs, threshold=0.7)
+        interface['rop'] = calculate_rop_score(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings, threshold=0.7)
+        interface['avg_pct_rop'] = np.mean(calculate_percent_rops(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings))
         if interface['confidence_class'] in ['high', 'medium']:
             interface['evenness'] = compute_pae_evenness(interface['residue_pairs'], best_model['pae_data'])
             interface['location'] = readable_ranges(interface['residue_pairs'], best_model['structure_model'], best_model['abs_res_lookup_dict'])
@@ -318,6 +315,8 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 # # single interface
 # folder_path = '/Users/poppy/Dropbox/centriole_screen/Plk4_Ana2/Plk4_F1+Ana2_F2'
 # folder_path = '/Users/poppy/Dropbox/PCM/Spd-2_GCP5/Spd-2_F4+GCP5_F2'
+# folder_path = '/Users/poppy/Dropbox/centriole_dimers/Ana2_PLK4_dimer/Ana2_F2+PLK4_dimer_F1_output'
+# folder_path = '/Users/poppy/Dropbox/PCM_dimers/Cnn_dimer_TACC_dimer/Cnn_dimer_F1+TACC_dimer_F1_output'
 # interface_data = find_and_score_interfaces(folder_path)
 # # Display the interfaces
 # for idx, interface in enumerate(interface_data):
@@ -327,6 +326,7 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 #     print(f"  Residue Pairs: {interface['residue_pairs']}")
 #     print(f"  Confidence Class: {interface['confidence_class']}")
 #     print(f"  ROP: {interface['rop']}")
+#     print(f"  Avg pct ROP: {interface['avg_pct_rop']:.2f}")
 #     print(f"  min_pae: {interface['min_pae']:.2f}")
 #     print(f"  Location: {interface['location']}")
 #     #if 'location' in interface:
