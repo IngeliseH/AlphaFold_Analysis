@@ -214,7 +214,6 @@ def get_chain_permutations(chain_groupings):
         for perm2 in second_group_permutations:
             all_permutations.append((perm1, perm2))
     return all_permutations
-print(f"Permutations to check: {get_chain_permutations([('A','B'), ('C','D')])}")
 
 def convert_to_updated_absolute(relative_pairs, abs_res_lookup_dict, chain_groupings, permutation):
     # Create a mapping from original chain IDs to permuted chain IDs

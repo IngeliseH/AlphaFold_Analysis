@@ -1,28 +1,41 @@
-def expand_loc_range(loc_range):
-    """
-    expand a location range string (eg '1-5,7,9-10') into a list of integers (eg [1, 2, 3, 4, 5, 7, 9, 10])
-    """
-    locs = loc_range.split(',')
-    expanded_locs = []
-    for loc in locs:
-        if '-' in loc:
-            start, end = loc.split('-')
-            expanded_locs.extend(range(int(start), int(end)+1))
-        else:
-            expanded_locs.append(int(loc))
-    return expanded_locs
-
 def find_int_overlap(loc, loc_list):
     """
-    for a list of interface locations (loc_list), find how many overlap with at least 75% of a particular
+    For a list of interface locations (loc_list), find how many overlap with at least 75% of a particular
     interface (loc)
+    For locations with multiple chains, all chain combinations are considered and the full interface taken into account when calculating percentage
     """
     total = 0
+    loc = [set(l) for l in loc]
+    total_loc_len = sum(len(l) for l in loc)
+    if total_loc_len == 0:
+        return 0
+    
+    def is_overlap(loc, elem):
+        """Helper function to determine if overlap is greater than 75%"""
+        overlap = 0
+        for l, e in zip(loc, elem):
+            overlap += len(l.intersection(e))
+        if overlap / total_loc_len > 0.75:
+            return True
+        return False
+    
     # for each interface location in loc_list, check what percent of the current location is in the interface location
     for elem in loc_list:
-        overlap = len(set(loc).intersection(set(elem))) / len(loc)
-        if overlap > 0.75:
-            total += 1
+        elem = [set(c) for c in elem]
+        if len(loc) == 1 and len(elem) == 1:
+            if is_overlap(loc, elem):
+                total += 1
+        elif len(loc) == 2 and len(elem) == 2:
+            if is_overlap(loc, elem) or is_overlap(loc, elem[::-1]):
+                total += 1
+        elif (len(loc) == 1 and len(elem) == 2):
+            if is_overlap(loc, [elem[0]]) or is_overlap(loc, [elem[1]]):
+                total += 1
+        elif (len(loc) == 2 and len(elem) == 1):
+            if is_overlap([loc[0]], elem) or is_overlap([loc[1]], elem):
+                total += 1
+        else:
+            print(f"Trying to compare incorrect chain numbers in promiscuity calculation: current loc has {len(loc)} chains, list element has {len(elem)}")
     return total
 
 def find_interface_promiscuity(df):
@@ -30,43 +43,78 @@ def find_interface_promiscuity(df):
     find promiscuity of each domain pair in the dataframe by finding the number of other domain pairs
     that overlap with the interface location of the current domain pair
     """
+    print("Finding interface promiscuity...")
     # build dict of domain names and all interface locations found involving that domain
     from collections import defaultdict
+    from ast import literal_eval
+    from analysis_utility import expand_loc_range
+    def get_chain_groupings(row):
+        dimer1 = False
+        chain_group1, chain_group2 = ('A'), ('B')
+        if '_dimer' in row['Protein1']:
+            dimer1 = True
+            chain_group1, chain_group2 = ('A', 'B'), ('C')
+        if '_dimer' in row['Protein2']:
+            chain_group2 = ('C', 'D') if dimer1 else ('B', 'C')
+        return [chain_group1, chain_group2]
+    
+    def get_loc(chain_group, locations, protein_naming, i):
+        loc = []
+        for chain in chain_group:
+            chain_key = f'Protein{i+1}' if protein_naming else f'Chain {chain}'
+            if locations.get(chain_key) == 'None':
+                continue
+            loc.append(expand_loc_range(locations[chain_key]))
+        return loc
+
     domain_int_locs = defaultdict(list)
     for _, row in df.iterrows():
         if row['location']:
-            from ast import literal_eval
+            chain_groupings = get_chain_groupings(row)
             try:
                 locations = literal_eval(row['location'])
-                loc1 = expand_loc_range(locations['Protein1'])
-                loc2 = expand_loc_range(locations['Protein2'])
-                domain_int_locs[row['Protein1_Domain']].append(loc1)
-                domain_int_locs[row['Protein2_Domain']].append(loc2)
+                if not locations:
+                    continue
+                protein_naming = True if 'Protein1' in locations else False
+                for index, chain_group in enumerate(chain_groupings):
+                    loc = get_loc(index, chain_group, locations, protein_naming)
+                    domain_int_locs[row[f'Protein{i+1}_Domain']].append(loc)
             except:
                 continue
+
     # iterate through again and find promiscuity for each domain
     df['p1d_promiscuity'] = None
     df['p2d_promiscuity'] = None
     df['total_promiscuity'] = None
+    df['max_promiscuity'] = None
     for _, row in df.iterrows():
         if row['location']:
+            promiscuitys = []
+            chain_groupings = get_chain_groupings(row)
             try:
                 locations = literal_eval(row['location'])
-                loc1 = expand_loc_range(locations['Protein1'])
-                loc2 = expand_loc_range(locations['Protein2'])
-                p1d_promiscuity = find_int_overlap(loc1, domain_int_locs[row['Protein1_Domain']])
-                p2d_promiscuity = find_int_overlap(loc2, domain_int_locs[row['Protein2_Domain']])
-                # subtract 1 from each (self)
-                p1d_promiscuity -= 1
-                p2d_promiscuity -= 1
-                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p1d_promiscuity'] = p1d_promiscuity
-                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p2d_promiscuity'] = p2d_promiscuity
-                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'total_promiscuity'] = p1d_promiscuity + p2d_promiscuity
+                if not locations:
+                    continue
+                protein_naming = True if 'Protein1' in locations else False # maintain compatibility with outdated 'protein' naming
+                for index, chain_group in enumerate(chain_groupings):
+                    loc = get_loc(index, chain_group, locations, protein_naming)
+                    promiscuity = find_int_overlap(loc, domain_int_locs[row[f'Protein{i+1}_Domain']])
+                    promiscuity -= 1 # subtract 1 from each (self)
+                    promiscuitys.append(promiscuity)
+                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p1d_promiscuity'] = promiscuitys[0]
+                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p2d_promiscuity'] = promiscuitys[1]
+                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'total_promiscuity'] = sum(promiscuitys)
+                df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'max_promiscuity'] = max(promiscuitys)
             except:
                 continue
     return df
 
 # Example usage
+import pandas as pd
+df = pd.read_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_2025.06.05.csv')
+df = find_interface_promiscuity(df)
+df.to_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_06.05_promiscuity_added_2025.11.19_2.csv', index=False)
+
 # import pandas as pd
 # df = pd.read_csv('/Users/poppy/Dropbox/all_interface_analysis.csv')
 # df = find_interface_promiscuity(df)
