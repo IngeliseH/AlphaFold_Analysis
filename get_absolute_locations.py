@@ -118,6 +118,7 @@ def add_absolute_interface_locations(interface_df, protein_df):
         protein2 = row['Protein2']
         dimer1 = False
         if '_dimer' in protein1:
+            dimer1 = True
             protein1 = protein1.replace('_dimer', '')
             group1 = ('A', 'B')
         else:
@@ -221,6 +222,8 @@ def add_absolute_interface_locations(interface_df, protein_df):
 
     interface_data.to_csv(interface_df.replace('.csv', '_absolute.csv'), index=False)
 
+#protein_df = "/Users/poppy/Desktop/data/all_fragments_2025.06.04.csv"
+#interface_df = "/Users/poppy/Desktop/shift_test.csv"
 #protein_df = "/Volumes/T7/screen_results/all_fragments_2025.06.04.csv"
 #interface_df = "/Volumes/T7/screen_results/all_interface_analysis_2025.11.26.csv"
 #add_absolute_interface_locations(interface_df, protein_df)
