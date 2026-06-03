@@ -26,7 +26,7 @@ from process_pae import residue_pairs_min_pae, compute_average_interface_pae, co
 from iptm_visualisation import extract_iptm
 from pdockq_calc import compute_pdockq
 
-def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_atom=True, chain_groupings=None):
+def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=14.0, all_atom=True, chain_groupings=None):
     """
     Collects essential model data (residue_pairs and confident_pairs) required for ROP calculations.
     Returns a list of model_data dictionaries and a boolean is_pdb indicating file type.
@@ -46,21 +46,30 @@ def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_at
 
     # Collect structure files
     structure_files = sorted(
-        [x for x in Path(folder_path).glob(file_extension) if 'conservation' not in x.name],
+        [x for x in Path(folder_path).glob(file_extension) if 'conservation' not in x.name and not x.name.startswith('._')],
         key=lambda x: int(re.search(r'(rank|model)_(\d+)', x.name).group(2))
     )
 
     model_data = []
+    # find rank 1 model
+    rank1_model_file = next((f for f in structure_files if re.search(r'(rank|model)_1', f.name)), None)
+    rank1_structure_model = parse_structure_file(rank1_model_file, is_pdb) if rank1_model_file else None
+    chain_residue_map = map_chains_and_residues(rank1_structure_model)
+    abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
+
     for model_file in structure_files:
         # Extract model rank from filename
         rank_match = re.search(r'(rank|model)_(\d+)', model_file.name)
         if rank_match:
-            model_rank = rank_match.group(2)
+            model_rank = int(rank_match.group(2))
         else:
-            model_rank = None  # Handle as needed
+            model_rank = None
 
         # Parse structure model
-        structure_model = parse_structure_file(model_file, is_pdb)
+        if model_rank == 1 and rank1_structure_model is not None:
+            structure_model = rank1_structure_model
+        else:
+            structure_model = parse_structure_file(model_file, is_pdb)
 
         if is_pdb:
             if "alphafold2" in model_file.name:
@@ -74,18 +83,18 @@ def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_at
         else:
             # For CIF files, JSON file name is same as model file name with "model" replaced with "full_data"
             json_file = model_file.with_name(model_file.name.replace("model", "full_data")).with_suffix('.json')
-            # log fie with iptm is named with summary_confidences instead of full_data
+            # log file with iptm is named with summary_confidences instead of full_data
             log_file = model_file.with_name(model_file.name.replace("model", "summary_confidences")).with_suffix('.json')
         # Extract PAE data
         pae_data = extract_pae(json_file)
 
-        # Map chains and residues
-        chain_residue_map = map_chains_and_residues(structure_model)
-        abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}
-
         # Get interprotein residue pairs within distance cutoff (residue_pairs)
-        residue_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom, chain_groupings=chain_groupings))
-        confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
+        if model_rank in [1, 2]:
+            residue_pairs = set(get_residue_pairs(structure_model, distance_cutoff, abs_res_lookup_dict, all_atom, chain_groupings=chain_groupings))
+            confident_pairs = find_confident_pairs(residue_pairs, pae_data, pae_cutoff)
+        else:
+            residue_pairs = set()
+            confident_pairs = set()
         secondary_pairs = get_residue_pairs(structure_model, distance_cutoff+1, abs_res_lookup_dict, all_atom, chain_groupings=chain_groupings)
 
         # Store model data
@@ -108,47 +117,23 @@ def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=15.0, all_at
 
 def select_best_model(model_data):
     """
-    Selects the best model based on ROP scores and min_pae increase criteria.
+    Selects the best model based on ROP scores.
     Returns the best model data dictionary.
     """
     # Identify the top-ranked model (the first in the list)
-    top_model = model_data[0]
-    top_model_rank = top_model['model_rank']
-    top_model['min_pae'] = residue_pairs_min_pae(top_model['residue_pairs'], top_model['pae_data'])
+    top_model = next((m for m in model_data if m['model_rank'] == 1), None)
+    if not top_model:
+        raise ValueError("No model with rank 1 found in model data.")
 
-    models_with_confident_pairs = [m for m in model_data if m['confident_pairs']]
-
-    if not models_with_confident_pairs:
+    models_to_consider = [m for m in model_data if m['confident_pairs'] and m['model_rank'] in [1, 2]]
+    if not models_to_consider:
         # If none of the models have any confident pairs, keep the initial top-ranked model
         return top_model
 
-    # Find model(s) with highest (ROP score * avg percent ROP)
-    best_model = None
-    highest_score = 0
-    for model in models_with_confident_pairs:
-        score = model['rop'] * model['avg_pct_rop']
-        # score must be at least 10% higher than current best to prevent tiny adjustments - want to keep to original ranking order where possible 
-        if score > highest_score*1.1:
-            best_model = model
-            highest_score = score
-    
+    best_model = max(models_to_consider, key=lambda m: (m['rop'], -int(m['model_rank'])))  # higher ROP is better, and if tie, lower model rank (i.e. model 1) is better
     if not best_model:
-        # If no model has a score 10% higher than the top model, keep the top model
+        # If no model has confident pairs/repeatability, keep the top model
         best_model = top_model
-
-    else:
-        # compute min_pae for best_model, if not already found
-        best_model['min_pae'] = residue_pairs_min_pae(best_model['confident_pairs'], best_model['pae_data'])
-
-        # Check if picking this model leads to a significant rise in minPAE
-        min_pae_increase = best_model['min_pae'] - top_model['min_pae']
-
-        # Compute the threshold for significant rise in minPAE
-        min_pae_threshold = max(3, int(np.ceil(0.3 * top_model['min_pae'])))
-
-        if min_pae_increase > min_pae_threshold:
-            # Significant rise in minPAE; keep the original top-ranked model
-            best_model = top_model
 
     return best_model
 
@@ -163,12 +148,10 @@ def compute_additional_metrics(model):
     json_file = model['json_file']
     log_file = model['log_file']
 
-    # Compute min_pae if not already found (ie if not using best_model selection, as this finds pae)
-    if 'min_pae' not in model:
-        model['min_pae'] = residue_pairs_min_pae(model['confident_pairs'], model['pae_data'])
-    # Compute avg_interface_pae
+    print(f"Computing additional metrics for model: {model_file.name}")
+    model['min_pae'] = residue_pairs_min_pae(confident_pairs, pae_data)
+    print(f"Min PAE for confident pairs: {model['min_pae']}")
     model['avg_interface_pae'] = compute_average_interface_pae(confident_pairs, pae_data)
-    # Compute pae_evenness
     model['pae_evenness'] = compute_pae_evenness(confident_pairs, pae_data)
     # Compute pdockq if only 2 chains
     if len(model['structure_model']) == 2:
@@ -176,36 +159,40 @@ def compute_additional_metrics(model):
     # Extract iptm
     model['iptm'] = extract_iptm(log_file, model['model_rank'])
     # Find number of confident interface residue pairs
-    model['interface_size'] = len(confident_pairs)
+    model['interface_size'] = len(model['residue_pairs'])
     
     # Map absolute residue IDs back to chain-specific numbering with chain IDs
-    inv_abs_res_lookup_dict = {v: k for k, v in model['abs_res_lookup_dict'].items()}
-    confident_pairs_chain_specific = [
-        (f"{inv_abs_res_lookup_dict[res1][0]} {inv_abs_res_lookup_dict[res1][1]}",
-         f"{inv_abs_res_lookup_dict[res2][0]} {inv_abs_res_lookup_dict[res2][1]}")
-        for res1, res2 in confident_pairs if res1 in inv_abs_res_lookup_dict and res2 in inv_abs_res_lookup_dict
-    ]
-    model['confident_pairs_chain_specific'] = confident_pairs_chain_specific
+    #inv_abs_res_lookup_dict = {v: k for k, v in model['abs_res_lookup_dict'].items()}
+    #confident_pairs_chain_specific = [
+    #    (f"{inv_abs_res_lookup_dict[res1][0]} {inv_abs_res_lookup_dict[res1][1]}",
+    #     f"{inv_abs_res_lookup_dict[res2][0]} {inv_abs_res_lookup_dict[res2][1]}")
+    #    for res1, res2 in confident_pairs if res1 in inv_abs_res_lookup_dict and res2 in inv_abs_res_lookup_dict
+    #]
+    #model['confident_pairs_chain_specific'] = confident_pairs_chain_specific
 
-def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_atom=True):
+def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=14.0, all_atom=True):
     """
     Main function that selects and scores the best model.
     """
     # Collect model data (only essential data)
     model_data = collect_model_data(folder_path, distance_cutoff, pae_cutoff, all_atom)
+    print(f"Collected data for {len(model_data)} models.")
 
     # Calculate ROP scores
     for model in model_data:
-        other_model_pairs = [m['confident_pairs'] for m in model_data if m != model]
-        model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs)
+        if model['model_rank'] in [1, 2]:
+            other_model_pairs = [m['secondary_pairs'] for m in model_data if m != model]
+            model['rop'] = calculate_rop_score(model['confident_pairs'], other_model_pairs)
+    print("Calculated ROP scores for all models.")
 
     # Select the best model
     best_model = select_best_model(model_data)
+    print(f"Selected best model: {best_model['model_file']} with ROP score: {best_model['rop']}")
 
     # Calculate percent_rop
     for model in model_data:
-        other_model_pairs = [m['confident_pairs'] for m in model_data if m != model]
-    best_model['percent_rop'] = np.mean(val for val in calculate_percent_rops(best_model['confident_pairs'], other_model_pairs) if val > 0.25)
+        other_model_pairs = [m['secondary_pairs'] for m in model_data if m != model]
+    best_model['percent_rop'] = np.mean([val for val in calculate_percent_rops(best_model['confident_pairs'], other_model_pairs) if val > 0.25])
 
     # Compute additional metrics for the best model
     compute_additional_metrics(best_model)
@@ -216,7 +203,7 @@ def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_ato
 # # Example usage:
 # folder_path = 'data/Ana2_Sak/Ana2_D1+Sak_D1'
 # distance_cutoff = 5.0
-# pae_cutoff = 15.0
+# pae_cutoff = 16.0
 # all_atom = True
 
 # # USING INDIVIDUAL FUNCTIONS
@@ -239,8 +226,13 @@ def score_interaction(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_ato
 # for key, value in best_model.items():
 #     print(f"{key}: {value}")
 
-# # USING OVERALL SCORING FUNCTION
+# USING OVERALL SCORING FUNCTION
 # # Score interaction for the best model
+# folder_path = '/Volumes/T7/screen_results/general/PLK1_Sas-4/PLK1_F1+Sas-4_F1'
+# distance_cutoff = 5.0
+# pae_cutoff = 16.0
+# all_atom = True
+
 # best_model = score_interaction(folder_path, distance_cutoff, pae_cutoff, all_atom)
 # print(f"Best model selected: {best_model['model_file']}")
 # print(f"ROP score: {best_model['rop']}")
