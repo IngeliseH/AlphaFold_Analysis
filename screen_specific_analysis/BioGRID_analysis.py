@@ -16,7 +16,9 @@ geneList = ['alphaTub67C', 'ana1', 'ana2', 'ana3', 'asl', 'betaTub56D',
             'Grip84', 'Grip91', 'Grip75', 'Grip128', 'Grip163', 'Grip71',
             'CG42787', 'cdc2', 'cdc2c', 'CycA', 'CycB', 'CycB3', 'CycE', 'ial',
             'Bub1', 'BubR1', 'Cenp-C', 'cid', 'fzy', 'Mad1', 'mad2', 'ald',
-            'rod', 'Zw10', 'Zwilch']
+            'rod', 'Zw10', 'Zwilch', 'CG33052', 'RAP', 'CAL1', 'SPC105R',
+            'MIS12', 'NNF1A', 'NNF1B', 'KMN1', 'NDC80', 'NUF2', 'KMN2', 'SPC25',
+            'CMET', 'SPINDLY', 'BUB3', 'INCENP', 'DET']
 searchNames=True # search by gene name
 geneListJoined = '|'.join(geneList)
 taxId = '7227' # Drosophila melanogaster
@@ -43,7 +45,11 @@ bg_af = {'ald': 'MPS1', 'alphaTub67C': 'alpha-tubulin', 'ana1': 'Ana1', 'ana2': 
             'spd-2': 'Spd-2', 'tacc': 'TACC', 'Zw10': 'ZW10', 'Zwilch': 'ZWILCH',
             'Cep135': 'Cep135', 'Cep97': 'Cep97', 'CycA': 'CycA', 'CycB3': 'CycB3',
             'CycE': 'CycE', 'Grip71': 'Grip71', 'Rcd4': 'Rcd4', 'Sas-4': 'Sas-4',
-            'Sas-6': 'Sas-6'}
+            'Sas-6': 'Sas-6', 'CG33052': 'Gorab', 'RAP': 'Fzr', 'CAL1': 'CAL1',
+            'SPC105R': 'Spc105R', 'MIS12': 'Mis12', 'NNF1A': 'Nnf1A', 'NNF1B': 'Nnf1B',
+            'KMN1': 'Nsl1', 'NDC80': 'Ndc80', 'NUF2': 'Nuf2', 'KMN2': 'Spc24', 'SPC25': 'Spc25',
+            'CMET': 'CENP-meta', 'SPINDLY': 'Spindly', 'BUB3': 'Bub3', 'INCENP': 'Incenp',
+            'DET': 'Survivin'}
 
 # iterate through lines and add to dataframe
 for line in lines:
@@ -64,16 +70,17 @@ for line in lines:
             if fields[12] == 'physical': # only including evidence of physical interactions
                 # join fields 11 (method) + 13 (ref) into one string
                 evidence = fields[11] + ' ' + fields[13]
-                interactions_df = pd.concat([interactions_df, pd.DataFrame([[gene1af, gene2af, gene1bg, gene2bg, 1, evidence]], columns=['Protein1AF', 'Protein2AF', 'Gene1BG', 'Gene2BG', 'Evidence_count', 'Evidence'])])
                 if fields[13] == 'Galletta BJ (2016)':
                     galletta_interactions_df = pd.concat([galletta_interactions_df, pd.DataFrame([[gene1af, gene2af, gene1bg, gene2bg, 1]], columns=['Protein1AF', 'Protein2AF', 'Gene1BG', 'Gene2BG', 'Evidence_count'])])
+                else: # excluding Y2H to not duplicate
+                    interactions_df = pd.concat([interactions_df, pd.DataFrame([[gene1af, gene2af, gene1bg, gene2bg, 1, evidence]], columns=['Protein1AF', 'Protein2AF', 'Gene1BG', 'Gene2BG', 'Evidence_count', 'Evidence'])])
 
 # Merge duplicate interactions, summing evidence count
 interactions_df = interactions_df.groupby(['Protein1AF', 'Protein2AF', 'Gene1BG', 'Gene2BG'], as_index=False).agg({'Evidence_count': 'sum', 'Evidence': lambda x: ', '.join(x)})
 galletta_interactions_df = galletta_interactions_df.groupby(['Protein1AF', 'Protein2AF', 'Gene1BG', 'Gene2BG'], as_index=False).agg({'Evidence_count': 'sum'})
 
 # Write all interactions to csv
-bg_data_filename = 'BioGRID_interactions.csv'
+bg_data_filename = '2026.04.01_BioGRID_interactions.csv'
 with open(f'/Users/poppy/Dropbox/{bg_data_filename}', 'w') as f:
     writer = csv.writer(f)
     # write all columns from pd dataframe
