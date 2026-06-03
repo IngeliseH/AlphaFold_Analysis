@@ -43,7 +43,6 @@ def find_interface_promiscuity(df):
     find promiscuity of each domain pair in the dataframe by finding the number of other domain pairs
     that overlap with the interface location of the current domain pair
     """
-    print("Finding interface promiscuity...")
     # build dict of domain names and all interface locations found involving that domain
     from collections import defaultdict
     from ast import literal_eval
@@ -58,10 +57,10 @@ def find_interface_promiscuity(df):
             chain_group2 = ('C', 'D') if dimer1 else ('B', 'C')
         return [chain_group1, chain_group2]
     
-    def get_loc(chain_group, locations, protein_naming, i):
+    def get_loc(index, chain_group, locations, protein_naming):
         loc = []
         for chain in chain_group:
-            chain_key = f'Protein{i+1}' if protein_naming else f'Chain {chain}'
+            chain_key = f'Protein{index+1}' if protein_naming else f'Chain {chain}'
             if locations.get(chain_key) == 'None':
                 continue
             loc.append(expand_loc_range(locations[chain_key]))
@@ -78,7 +77,7 @@ def find_interface_promiscuity(df):
                 protein_naming = True if 'Protein1' in locations else False
                 for index, chain_group in enumerate(chain_groupings):
                     loc = get_loc(index, chain_group, locations, protein_naming)
-                    domain_int_locs[row[f'Protein{i+1}_Domain']].append(loc)
+                    domain_int_locs[row[f'Protein{index+1}_Domain']].append(loc)
             except:
                 continue
 
@@ -98,9 +97,10 @@ def find_interface_promiscuity(df):
                 protein_naming = True if 'Protein1' in locations else False # maintain compatibility with outdated 'protein' naming
                 for index, chain_group in enumerate(chain_groupings):
                     loc = get_loc(index, chain_group, locations, protein_naming)
-                    promiscuity = find_int_overlap(loc, domain_int_locs[row[f'Protein{i+1}_Domain']])
-                    promiscuity -= 1 # subtract 1 from each (self)
-                    promiscuitys.append(promiscuity)
+                    if loc:
+                        promiscuity = find_int_overlap(loc, domain_int_locs[row[f'Protein{index+1}_Domain']])
+                        promiscuity -= 1 # subtract 1 from each (self)
+                        promiscuitys.append(promiscuity)
                 df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p1d_promiscuity'] = promiscuitys[0]
                 df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'p2d_promiscuity'] = promiscuitys[1]
                 df.loc[(df['Protein1_Domain'] == row['Protein1_Domain']) & (df['Protein2_Domain'] == row['Protein2_Domain']) & (df['location'] == row['location']), 'total_promiscuity'] = sum(promiscuitys)
@@ -110,10 +110,12 @@ def find_interface_promiscuity(df):
     return df
 
 # Example usage
-import pandas as pd
-df = pd.read_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_2025.06.05.csv')
-df = find_interface_promiscuity(df)
-df.to_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_06.05_promiscuity_added_2025.11.19_2.csv', index=False)
+# import pandas as pd
+# df = pd.read_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_2025.06.05.csv')
+# df = pd.read_csv('/Volumes/T7/screen_results/all_interface_analysis_2025.11.25.csv')
+# df = find_interface_promiscuity(df)
+# df.to_csv('/Volumes/T7/screen_results/all_interface_analysis_2025.11.25_promiscuity_added.csv', index=False)
+# df.to_csv('/Users/poppy/Dropbox/all_dimer_interface_analysis_06.05_promiscuity_added_2025.11.19_2.csv', index=False)
 
 # import pandas as pd
 # df = pd.read_csv('/Users/poppy/Dropbox/all_interface_analysis.csv')

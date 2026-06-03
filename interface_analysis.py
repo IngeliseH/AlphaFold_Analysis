@@ -74,7 +74,7 @@ def build_residue_pair_graph_with_spatial_proximity_and_pae(
     inv_abs_res_lookup_dict,
     structure_model,
     pae_data,
-    pae_cutoff=15.0,
+    pae_cutoff=14.0,
     distance_cutoff=5.0
 ):
     """
@@ -95,8 +95,7 @@ def build_residue_pair_graph_with_spatial_proximity_and_pae(
     """
     G = nx.Graph()
 
-    # Add node for each interprotein residue pair
-    # Node is associated with midpoint coordinate of the pair
+    # Add node for each interprotein residue pair, associated with midpoint coordinate of the pair
     rep_coords = []
     for idx, (res1_id, res2_id) in enumerate(residue_pairs):
         coord1 = get_residue_coordinate(res1_id, inv_abs_res_lookup_dict, structure_model)
@@ -105,40 +104,35 @@ def build_residue_pair_graph_with_spatial_proximity_and_pae(
         G.add_node(idx, pair=(res1_id, res2_id), coord=rep_coord)
         rep_coords.append(rep_coord)
 
-    # Build edges based on spatial proximity and PAE
+    # Use a KD-tree to find all pairs of residue-pair midpoints that are within
+    # distance_cutoff of each other.
     rep_coords_array = np.array(rep_coords)
     tree = cKDTree(rep_coords_array)
     pairs = tree.query_pairs(r=distance_cutoff)
+
+    # For the four residues involved in the two pairs, group them by chain
+    # so we can check whether the local intra-chain geometry between them
+    # is well-defined (low PAE).
     for i, j in pairs:
-        pair_i = G.nodes[i]['pair']
-        pair_j = G.nodes[j]['pair']
-
-        # Check within-chain PAE for residues in the same chain
-        # Exclude input residue pairs (from different proteins) from PAE filtering
-        residues_i = pair_i
-        residues_j = pair_j
-
-        # Collect all unique residues involved
+        residues_i = G.nodes[i]['pair']
+        residues_j = G.nodes[j]['pair']
         all_residues = set(residues_i + residues_j)
 
-        # Group residues by chain
         chain_residues = {}
         for res_id in all_residues:
             chain_id, res_num = inv_abs_res_lookup_dict[res_id]
             chain_residues.setdefault(chain_id, []).append(res_id)
 
-        # Check PAE between residues within the same chain
+        # Only if *all* intra-chain residue pairs among these four residues
+        # have PAE <= pae_cutoff do we connect the two nodes.
         low_pae_within = True
         for chain_id, res_ids in chain_residues.items():
-            # If only one residue in the chain, skip PAE check
             if len(res_ids) <= 1:
                 continue
-            # Compute pairwise PAE between residues within the chain
             for res_id1 in res_ids:
                 for res_id2 in res_ids:
                     if res_id1 >= res_id2:
-                        continue  # Avoid duplicates
-                    # Exclude input residue pairs (from different proteins)
+                        continue
                     if (res_id1, res_id2) in residue_pairs or (res_id2, res_id1) in residue_pairs:
                         continue
                     pae = min(pae_data[res_id1][res_id2], pae_data[res_id2][res_id1])
@@ -192,7 +186,7 @@ def interface_confidence(avg_pae, min_pae):
         return 'medium'
     return 'low'
 
-def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separation_distance = 5.0, interprotein_pae=15.0, intraprotein_pae=15.0,  all_atom=True):
+def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separation_distance = 5.0, interprotein_pae=14.0, intraprotein_pae=14.0,  all_atom=True):
     """
     Main function that selects and scores the best model.
 
@@ -224,7 +218,7 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         if parts[2] == 'dimer':
             p2_is_dimer = True
     if "dimer" in folder and not (p1_is_dimer or p2_is_dimer):
-        if "fold" not in folder: # ok in case of af3 predictions of single diimerised fragment (naming format = fold_p1_fl_dimer)
+        if "fold" not in folder: # ok in case of af3 predictions of single dimerised fragment (naming format = fold_p1_fl_dimer)
             raise ValueError(f"Folder name '{folder}' indicates a dimer, but no dimer detected in parts: {parts}. Please check code and folder naming conventions to make sure dimers are correctly interpreted.")
     # if dimer is in name twice
     elif folder.count('dimer') > 1 and not (p1_is_dimer and p2_is_dimer):
@@ -292,11 +286,11 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         # update interface with data from best_model - EXCEPT 'residue_pairs' as this will override interface residue pairs if left in
         interface.update({k: v for k, v in best_model.items() if k not in ['residue_pairs', 'avg_pct_rop', 'rop']})
         interface['avg_pae'] = compute_average_interface_pae(interface['residue_pairs'], best_model['pae_data'])
-        interface['confidence_class'] = interface_confidence(interface['avg_pae'], interface['min_pae'])
         interface['min_pae'] = residue_pairs_min_pae(interface['residue_pairs'], best_model['pae_data'])
         interface['location'] = readable_ranges(interface['residue_pairs'], best_model['structure_model'], best_model['abs_res_lookup_dict'])
         interface['rop'] = calculate_rop_score(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings, threshold=0.7)
         interface['avg_pct_rop'] = np.mean(calculate_percent_rops(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings))
+        interface['confidence_class'] = interface_confidence(interface['avg_pae'], interface['min_pae'])
         if interface['confidence_class'] in ['high', 'medium']:
             interface['evenness'] = compute_pae_evenness(interface['residue_pairs'], best_model['pae_data'])
             interface['location'] = readable_ranges(interface['residue_pairs'], best_model['structure_model'], best_model['abs_res_lookup_dict'])
@@ -313,26 +307,33 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 # process_all_predictions(folder_path, find_and_score_interfaces, output_file='PCM_interface_analysis.csv', ipTM_graphic=False)
 
 # # single interface
-# folder_path = '/Users/poppy/Dropbox/centriole_screen/Plk4_Ana2/Plk4_F1+Ana2_F2'
-# folder_path = '/Users/poppy/Dropbox/PCM/Spd-2_GCP5/Spd-2_F4+GCP5_F2'
+#folder_path = '/Volumes/T7/screen_results/centriole/Plk4_Ana2/Plk4_F1+Ana2_F2'
+# folder_path = '/Volumes/T7/screen_results/PCM/Spd-2_GCP5/Spd-2_F4+GCP5_F2'
 # folder_path = '/Users/poppy/Dropbox/centriole_dimers/Ana2_PLK4_dimer/Ana2_F2+PLK4_dimer_F1_output'
 # folder_path = '/Users/poppy/Dropbox/PCM_dimers/Cnn_dimer_TACC_dimer/Cnn_dimer_F1+TACC_dimer_F1_output'
+#folder_path = '/Volumes/T7/screen_results/centriole/Ana2_Sas-4/Ana2_F1+Sas-4_F3'
+#folder_path = '/Volumes/T7/screen_results/dimers/Cnn_dimer_Cnn_dimer/Cnn_dimer_F2+Cnn_dimer_F4_output'
+# folder_path = '/Volumes/T7/screen_results/PCM/Cnn_Cnn/Cnn_F2+Cnn_F2'
+
 # interface_data = find_and_score_interfaces(folder_path)
 # # Display the interfaces
+# i_num = 0
 # for idx, interface in enumerate(interface_data):
-#     print(f"Interface {idx + 1}:")
-#     print(f"  Number of Residue Pairs: {interface['size']}")
-#     print(f"  Average PAE: {interface['avg_pae']:.2f}")
-#     print(f"  Residue Pairs: {interface['residue_pairs']}")
-#     print(f"  Confidence Class: {interface['confidence_class']}")
-#     print(f"  ROP: {interface['rop']}")
-#     print(f"  Avg pct ROP: {interface['avg_pct_rop']:.2f}")
-#     print(f"  min_pae: {interface['min_pae']:.2f}")
-#     print(f"  Location: {interface['location']}")
-#     #if 'location' in interface:
-#         #print(f"  Location: {interface['location']}")
-#         #print(f"  ROP: {interface['rop']}")
-#     print()
+#     if interface['size'] >= 15:
+#         i_num += 1
+#         print(f"Interface {i_num}:")
+#         print(f"  Number of Residue Pairs: {interface['size']}")
+#         print(f"  Average PAE: {interface['avg_pae']:.2f}")
+#         print(f"  Residue Pairs: {interface['residue_pairs']}")
+#         print(f"  Confidence Class: {interface['confidence_class']}")
+#         print(f"  ROP: {interface['rop']}")
+#         print(f"  Avg pct ROP: {interface['avg_pct_rop']:.2f}")
+#         print(f"  min_pae: {interface['min_pae']:.2f}")
+#         print(f"  Location: {interface['location']}")
+#         #if 'location' in interface:
+#             #print(f"  Location: {interface['location']}")
+#             #print(f"  ROP: {interface['rop']}")
+#         print()
 
 # folder_path = '/Users/poppy/Dropbox/Msps/Msps_TACC/Msps_F3+TACC_F4'
 # folder_path = '/Users/poppy/Dropbox/centriole_screen/Plk4_Ana2/Plk4_F1+Ana2_F2'
@@ -343,7 +344,8 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 # folder_path = '/Users/poppy/Dropbox/FZY/FZY_MAD1/FZY_F1+MAD1_F2'
 # folder_path = '/Users/poppy/Dropbox/BUB1/BUB1_Grip71/BUB1_F1+Grip71_F2'
 # folder_path = '/Users/poppy/Dropbox/PCM/Cnn_Cnn/Cnn_F2+Cnn_F2'
-#folder_path = '/Users/poppy/Dropbox/atub_btub_Ana1/Ana1_BUB1/Ana1_F3+BUB1_F2'
+# folder_path = '/Users/poppy/Dropbox/atub_btub_Ana1/Ana1_BUB1/Ana1_F3+BUB1_F2'
+# folder_path = folder_path = '/Volumes/T7/screen_results/general/PLK1_Sas-4/PLK1_F1+Sas-4_F1'
 # interface_data = find_and_score_interfaces(folder_path, pair_distance = 6, interface_separation_distance = 5
 #                                            #intraprotein_pae=7
 #                                            )

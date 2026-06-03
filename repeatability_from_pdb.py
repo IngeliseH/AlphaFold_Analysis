@@ -424,7 +424,7 @@ def check_distances_across_models(folder_path, confident_pairs, distance_cutoff,
             print(f"Mapping not found for abs_res_ids: {abs_res1}, {abs_res2}")
     return sorted_model_consistency_scores, num_consistent_models, average_consistency_level, res_pairs
 
-def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all_atom=True):
+def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=14.0, all_atom=True):
     """
     Measure the similarity of confident interfaces across multiple models.
 
@@ -500,15 +500,16 @@ def measure_repeatability(folder_path, distance_cutoff=5.0, pae_cutoff=15.0, all
 #folder_path = "fold_ana2_flp_sak_fl"
 #num_consistent, level_consistent = measure_repeatability(folder_path, distance_cutoff=5, pae_cutoff=15, all_atom=True)
 
-# # NEW MODEL ANALYSIS
+# NEW MODEL ANALYSIS
 # from pathlib import Path
 # from analysis_utility import extract_pae, parse_structure_file, map_chains_and_residues, find_rank_001_files
 # folder_path = "data/Sak_Sas6/Sak_D3+Sas6_D1"
 # distance_cutoff = 5.0  # Distance cutoff for interface residue proximity
-# pae_cutoff = 15.0  # Confidence cutoff for PAE
+# pae_cutoff = 14.0  # Confidence cutoff for PAE
 # all_atom = True  # Whether to use all atom coordinates or just C-alpha
 # # Load the top-ranked model
 # rank1_structure_file, rank1_json_file, _, _, _ = find_rank_001_files(folder_path)
+# print(f"Top-ranked structure file: {rank1_structure_file}")
 # # Parse the structure and extract PAE data
 # rank1_model = parse_structure_file(rank1_structure_file, is_pdb=True)
 # pae_data = extract_pae(rank1_json_file)

@@ -206,7 +206,7 @@ def process_FL_predictions(
                             csv_entry_copy = csv_entry.copy()
                             csv_entry_copy.update({
                                 k: v for k, v in item.items()
-                                # leaving residue_pairs but leaving secondary_pairs as often exceed excel cell limit, causing issues
+                                # leaving residue_pairs but ignoring secondary_pairs as often exceed excel cell limit, causing issues
                                 if k not in ['json_file', 'model_file', 'structure_model', 'abs_res_lookup_dict', 'pae_data', 'secondary_pairs']
                             })
                             all_data.append(csv_entry_copy)
