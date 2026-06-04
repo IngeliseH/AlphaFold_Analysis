@@ -180,9 +180,9 @@ def interface_confidence(avg_pae, min_pae):
     """
     if not avg_pae or not min_pae:
         return None
-    if avg_pae < 7.5 and min_pae < 3:
+    if avg_pae < 10 and min_pae < 5:
         return 'high'
-    if avg_pae < 15 and min_pae < 5:
+    if avg_pae < 15 and min_pae < 11:
         return 'medium'
     return 'low'
 
@@ -289,9 +289,8 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
         interface['rop'] = calculate_rop_score(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings, threshold=0.7)
         interface['avg_pct_rop'] = np.mean(calculate_percent_rops(interface['residue_pairs'], other_model_pairs, best_model['abs_res_lookup_dict'], chain_groupings=chain_groupings))
         interface['confidence_class'] = interface_confidence(interface['avg_pae'], interface['min_pae'])
-        if interface['confidence_class'] in ['high', 'medium']:
-            interface['evenness'] = compute_pae_evenness(interface['residue_pairs'], best_model['pae_data'])
-            interface['location'] = readable_ranges(interface['residue_pairs'], best_model['structure_model'], best_model['abs_res_lookup_dict'])
+        interface['evenness'] = compute_pae_evenness(interface['residue_pairs'], best_model['pae_data'])
+        #if interface['confidence_class'] in ['high', 'medium']:
             #interface['charge_match'] = charge_score(interface['residue_pairs'], best_model['structure_model'], inv_abs_res_lookup_dict)
             #interface['hydrophobicity_match'] = hydrophobicity_score(interface['residue_pairs'], best_model['structure_model'], inv_abs_res_lookup_dict)
 
