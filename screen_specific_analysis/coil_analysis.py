@@ -1,5 +1,6 @@
 import pandas as pd
 from ast import literal_eval
+from analysis_utility import get_chain_groupings
 
 def prep_coconat_input(protein_data_csv, output_file):
     protein_data = pd.read_csv(protein_data_csv)
@@ -33,27 +34,96 @@ def prep_coconat_input(protein_data_csv, output_file):
     print(f'Number of sequences in output file: {num_sequences}')
     return fragment_dict
 
-drosophila_fragment_dict = prep_coconat_input('/Users/poppy/Dropbox/all_fragments.csv', '/Users/poppy/Desktop/coconat_input.fasta')
-human_fragment_dict = prep_coconat_input('/Users/poppy/Dropbox/alphafragment_human_protein_fragments.csv', '/Users/poppy/Desktop/human_coconat_input.fasta')
+drosophila_fragment_dict = prep_coconat_input('/Users/poppy/Dropbox/all_fragments.csv', '/Users/poppy/Dropbox/coiled_coil_analysis/coconat_input.fasta')
+human_fragment_dict = prep_coconat_input('/Users/poppy/Dropbox/alphafragment_human_protein_fragments.csv', '/Users/poppy/Dropbox/coiled_coil_analysis/human_coconat_input.fasta')
 
-def prep_interface_data(interface_data_csv):
-    interface_data = pd.read_csv(interface_data_csv)
-    # remove dimers as haven't implemented analysis for these
-    interface_data = interface_data[~interface_data['Protein1'].str.contains('dimer', case=False) & ~interface_data['Protein2'].str.contains('dimer', case=False)]
+def prep_interface_data(interface_data_csv, fragment_dict):
+    """Read and clean interface CSV before further processing."""
+    initial_rows = None
+    interface_data = pd.read_csv(interface_data_csv, low_memory=False)
+    initial_rows = len(interface_data)
+
+    interface_data['Protein1_Domain'] = interface_data['Protein1_Domain'].fillna('').astype(str).str.strip().str.replace(r"^[\(\[]+|[\)\]]+$", '', regex=True)
+    interface_data['Protein2_Domain'] = interface_data['Protein2_Domain'].fillna('').astype(str).str.strip().str.replace(r"^[\(\[]+|[\)\]]+$", '', regex=True)
+
+    def domain_in_fragment_dict(domain):
+        return domain.replace('_dimer', '') in fragment_dict
+    interface_data = interface_data[interface_data['Protein1_Domain'].apply(domain_in_fragment_dict) & interface_data['Protein2_Domain'].apply(domain_in_fragment_dict)]
+
+    # Coerce metric columns to numeric so downstream aggregation works reliably.
+    numeric_columns = ['pdockq', 'min_pae', 'avg_pae', 'rop', 'iptm', 'evenness', 'max_promiscuity', 'size']
+    for column in numeric_columns:
+        if column in interface_data.columns:
+            interface_data[column] = pd.to_numeric(interface_data[column], errors='coerce')
+
+    remaining_rows = len(interface_data)
+    excluded_rows = initial_rows - remaining_rows
+    print(f"prep_interface_data: excluded {excluded_rows} rows; {remaining_rows} rows remain")
+
     return interface_data
 
 def find_interface_contributors(interface_data, fragment_dict):
-    # get interface contributors from each side for each interface
-    interface_data['residue_pairs'] = interface_data['residue_pairs'].apply(literal_eval)
-    interface_data['chain_a_contributors'] = interface_data['residue_pairs'].apply(lambda pairs: set(pair[0] for pair in pairs))
-    interface_data['chain_b_contributors'] = interface_data['residue_pairs'].apply(lambda pairs: set(pair[1] for pair in pairs))
+    """
+    Get interface contributors from each side for each interface.
+    """
+    def safe_literal_eval(x):
+        try:
+            if pd.isna(x) or x == '' or x == 'None':
+                return []
+            parsed = literal_eval(x) if isinstance(x, str) else x
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, SyntaxError, TypeError, IndexError) as e:
+            print(f"Warning: Could not parse residue_pairs: {str(x)[:100]}... Error: {e}")
+            return []
 
-    # adjust chain b to account for pdb wide residue numbering
-    def adjust_chain_b_contributors(row):
-        chain_a_length = len(fragment_dict[row['Protein1_Domain']])
-        adjusted_contributors = set(res - chain_a_length for res in row['chain_b_contributors'])
-        return adjusted_contributors
-    interface_data['chain_b_contributors'] = interface_data.apply(adjust_chain_b_contributors, axis=1)
+    def extract_chain_values(pairs, index):
+        values = set()
+        for pair in pairs or []:
+            try:
+                values.add(pair[index])
+            except (TypeError, IndexError):
+                continue
+        return values
+
+    interface_data['residue_pairs'] = interface_data['residue_pairs'].apply(safe_literal_eval)
+    interface_data['chain_a_contributors'] = interface_data['residue_pairs'].apply(lambda pairs: extract_chain_values(pairs, 0))
+    interface_data['chain_b_contributors'] = interface_data['residue_pairs'].apply(lambda pairs: extract_chain_values(pairs, 1))
+
+    def adjust_contributors(row):
+        """Adjust residue numbering to be chain specific"""
+        chain_groupings = get_chain_groupings(row)
+        
+        p1_chains = chain_groupings[0] if isinstance(chain_groupings[0], tuple) else (chain_groupings[0],)
+        p2_chains = chain_groupings[1] if isinstance(chain_groupings[1], tuple) else (chain_groupings[1],)
+        
+        base_p1_domain = row['Protein1_Domain'].replace('_dimer', '') if '_dimer' in row['Protein1_Domain'] else row['Protein1_Domain']
+        base_p2_domain = row['Protein2_Domain'].replace('_dimer', '') if '_dimer' in row['Protein2_Domain'] else row['Protein2_Domain']
+        p1_seq_len = len(fragment_dict[base_p1_domain])
+        p2_seq_len = len(fragment_dict[base_p2_domain])
+
+        chain_ranges = []
+        idx = 0
+
+        for _ in p1_chains:
+            chain_ranges.append((idx, idx + p1_seq_len))
+            idx += p1_seq_len
+
+        for _ in p2_chains:
+            chain_ranges.append((idx, idx + p2_seq_len))
+            idx += p2_seq_len
+
+        def get_offset(res):
+            for start, end in chain_ranges:
+                if start <= res < end:
+                    return start
+            return 0
+
+        row['chain_a_contributors'] = set(res - get_offset(res) for res in row['chain_a_contributors'])
+        row['chain_b_contributors'] = set(res - get_offset(res) for res in row['chain_b_contributors'])
+        
+        return row
+    
+    interface_data = interface_data.apply(adjust_contributors, axis=1)
     return interface_data
 
 # collapse interface data to one row per fragment pair, keeping pdockq and list of interface contributors from each chain
@@ -73,11 +143,11 @@ def collapse_interface_data(interface_data):
     return collapsed_data
 
 #interface_data = prep_interface_data('/Users/Poppy/Dropbox/t7_interface_analysis_2026.04.11.csv')
-interface_data = prep_interface_data('/Users/Poppy/Desktop/t7_interface_analysis_2026.04.29_absolute.csv')
+interface_data = prep_interface_data('/Users/Poppy/Desktop/t7_interface_analysis_2026.04.29_absolute.csv', drosophila_fragment_dict)
 interface_data = find_interface_contributors(interface_data, drosophila_fragment_dict)
 collapsed_data = collapse_interface_data(interface_data)
 
-human_interface_data = prep_interface_data('/Users/Poppy/Desktop/human_interface_analysis_2026.04.30.csv')
+human_interface_data = prep_interface_data('/Users/Poppy/Dropbox/human_screen/human_interface_analysis_2026.04.30.csv', human_fragment_dict)
 human_interface_data = find_interface_contributors(human_interface_data, human_fragment_dict)
 human_collapsed_data = collapse_interface_data(human_interface_data)
 
@@ -144,40 +214,54 @@ def validate_coil_data(coil_df, fragment_dict):
         for frag_id, coil_len, frag_len in length_mismatches:
                 print(f'Length mismatch for {frag_id}: coil_df length={coil_len}, fragment_dict length={frag_len}')
 
-# for each row in the collapsed interface data, find the corresponding coil probabilities for the chain a and chain b contributors, and average these to get an average coil propensity for the interface contributors in chain a and chain b, and add these as new columns to the collapsed interface data
-# first add list of propensities for each chain a and chain b contributor
+# for each row in the collapsed interface data, find the corresponding coil probabilities for the chain a and chain b contributors, and average these to get an average coil propensity for each side of the interface
 def add_coil_prob_data(interface_data, coil_df):
-    def get_chain_probs(row, column, coil_df):
-        coil_match = coil_df.loc[coil_df['fragment_id'] == row['Protein1_Domain'], 'coil_probs']
+    """
+    Add coil probability data to interface data.
+    For dimers, uses the same coil probabilities for both chains since they have identical sequences.
+    """
+    def get_chain_probs(row, protein_col, contributor_col, coil_df):
+        domain = row[protein_col]
+        base_domain = domain.replace('_dimer', '') if '_dimer' in domain else domain
+        
+        coil_match = coil_df.loc[coil_df['fragment_id'] == base_domain, 'coil_probs']
         if coil_match.empty:
             return []
+        
         probs = coil_match.values[0]
         chain_probs = []
-        for res in row[column]:
+        for res in row[contributor_col]:
             if res < len(probs):
                 chain_probs.append(probs[res])
         return chain_probs
-    
-    interface_data['chain_a_coil_probs'] = interface_data.apply(lambda row: get_chain_probs(row, 'chain_a_contributors', coil_df), axis=1)
-    interface_data['chain_b_coil_probs'] = interface_data.apply(lambda row: get_chain_probs(row, 'chain_b_contributors', coil_df), axis=1)
 
-    # get averages
-    interface_data['chain_a_avg_coil_prob'] = interface_data['chain_a_coil_probs'].apply(lambda probs: sum(probs) / len(probs) if len(probs) > 0 else 0)
-    interface_data['chain_b_avg_coil_prob'] = interface_data['chain_b_coil_probs'].apply(lambda probs: sum(probs) / len(probs) if len(probs) > 0 else 0)
+    chain_a_coil_probs = interface_data.apply(
+        lambda row: get_chain_probs(row, 'Protein1_Domain', 'chain_a_contributors', coil_df), axis=1
+    )
+    chain_b_coil_probs = interface_data.apply(
+        lambda row: get_chain_probs(row, 'Protein2_Domain', 'chain_b_contributors', coil_df), axis=1
+    )
+
+    interface_data = interface_data.assign(
+        chain_a_coil_probs=chain_a_coil_probs,
+        chain_b_coil_probs=chain_b_coil_probs,
+        chain_a_avg_coil_prob=chain_a_coil_probs.apply(lambda probs: sum(probs) / len(probs) if len(probs) > 0 else 0),
+        chain_b_avg_coil_prob=chain_b_coil_probs.apply(lambda probs: sum(probs) / len(probs) if len(probs) > 0 else 0),
+    )
     return interface_data
 
-coil_df = process_coil_prob_data('/Users/Poppy/Desktop/coconat_results_reformatted.json')
+coil_df = process_coil_prob_data('/Users/Poppy/Dropbox/coiled_coil_analysis/coconat_results_reformatted.json')
 validate_coil_data(coil_df, drosophila_fragment_dict)
 collapsed_data = add_coil_prob_data(collapsed_data, coil_df)
 interface_data = add_coil_prob_data(interface_data, coil_df)  # add to non collapsed interface data as well
 
-human_coil_df = process_coil_prob_data('/Users/Poppy/Desktop/human_coconat_results_reformatted.json')
+human_coil_df = process_coil_prob_data('/Users/Poppy/Dropbox/coiled_coil_analysis/human_coconat_results_reformatted.json')
 validate_coil_data(human_coil_df, human_fragment_dict)
 human_collapsed_data = add_coil_prob_data(human_collapsed_data, human_coil_df)
 human_interface_data = add_coil_prob_data(human_interface_data, human_coil_df)
 
 # save non collapsed interface data with coil propensities as csv
-interface_data.to_csv('/Users/Poppy/Dropbox/t7_interface_analysis_coil_absolute_no_dimers_2026.04.29.csv', index=False)
+interface_data.to_csv('/Users/Poppy/Dropbox/coiled_coil_analysis/t7_interface_analysis_coil_absolute_2026.04.29.csv', index=False)
 
 #############################################################
 #ANALYSIS AND PLOTTING
@@ -316,7 +400,7 @@ to_save = to_save.drop(columns=[col for col in to_save.columns if not col.strip(
 # change protein1 to Source, protein2 to Target, and add weight column with value 1
 to_save = to_save.rename(columns={'Protein1': 'Source', 'Protein2': 'Target'})
 to_save['weight'] = 1
-to_save.to_csv('/Users/Poppy/Dropbox/t7_interface_analysis_with_coil_2026.04.29.csv', index=False)
+to_save.to_csv('/Users/Poppy/Dropbox/t7_interface_analysis_with_coil_2026.06.03.csv', index=False)
 
 # Drop rows with NA in coiledness_score or metrics
 metrics = ['pdockq', 'iptm', 'min_pae', 'avg_pae', 'rop']
@@ -327,7 +411,7 @@ human_to_save = human_interface_data.drop(columns=['chain_a_contributors', 'chai
 human_to_save = human_to_save.drop(columns=[col for col in human_to_save.columns if not col.strip()])
 human_to_save = human_to_save.rename(columns={'Protein1': 'Source', 'Protein2': 'Target'})
 human_to_save['weight'] = 1
-human_to_save.to_csv('/Users/Poppy/Dropbox/human_interface_analysis_with_coil_2026.04.30.csv', index=False)
+human_to_save.to_csv('/Users/Poppy/Dropbox/human_interface_analysis_with_coil_2026.06.03.csv', index=False)
 human_collapsed_data['coiledness_score'] = human_collapsed_data.apply(lambda row: calculate_coiledness_score(row['chain_a_avg_coil_prob'], row['chain_b_avg_coil_prob']), axis=1)
 
 # Compute and print Spearman correlation for each metric vs coiledness_score

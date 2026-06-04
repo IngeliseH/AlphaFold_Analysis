@@ -20,6 +20,62 @@ from collections import defaultdict
 import pickle
 import gemmi
 
+
+def _normalize_chain_groupings(chain_groupings):
+    """Normalize chain groupings to a list of two tuples of chain IDs."""
+    if chain_groupings is None:
+        return None
+    if len(chain_groupings) != 2:
+        raise ValueError(f"chain_groupings must contain exactly two groups, got {len(chain_groupings)}")
+
+    normalized = []
+    for group in chain_groupings:
+        # Handle singleton specified as string: ('A') -> 'A'
+        if isinstance(group, str):
+            normalized.append((group,))
+        else:
+            normalized.append(tuple(group))
+    return normalized
+
+
+def _merge_chain_groups(chain_coords, residue_plddt, chain_groupings):
+    """Merge chains into two groups for pDockQ calculation."""
+    chain_groupings = _normalize_chain_groupings(chain_groupings)
+    chain_order = list(chain_coords.keys())
+
+    # Validate chain IDs
+    for group in chain_groupings:
+        for chain_id in group:
+            if chain_id not in chain_coords:
+                raise ValueError(f"Chain '{chain_id}' from chain_groupings not present in structure chains: {chain_order}")
+
+    chain_lengths = {c: len(chain_coords[c]) for c in chain_order}
+    starts = {}
+    pos = 0
+    for c in chain_order:
+        starts[c] = pos
+        pos += chain_lengths[c]
+
+    if pos != len(residue_plddt):
+        raise ValueError(f"Length mismatch: total grouped residues {pos} vs pLDDT length {len(residue_plddt)}")
+
+    merged = {}
+    merged_plddt_parts = []
+    for idx, group in enumerate(chain_groupings, start=1):
+        ordered_group = [c for c in chain_order if c in group]
+        group_coords = []
+        group_plddt = []
+        for c in ordered_group:
+            group_coords.extend(chain_coords[c])
+            s = starts[c]
+            l = chain_lengths[c]
+            group_plddt.extend(residue_plddt[s:s+l])
+        merged[f'G{idx}'] = group_coords
+        merged_plddt_parts.append(np.array(group_plddt))
+
+    merged_plddt = np.concatenate(merged_plddt_parts)
+    return merged, merged_plddt
+
 def convert_json_to_pkl(json_filename):
     """
     Convert JSON file to PKL file
@@ -200,13 +256,15 @@ def calc_pdockq(chain_coords, plddt, t=8):
 
     return pdockq, ppv
 
-def compute_pdockq(structure_file, json_file):
+def compute_pdockq(structure_file, json_file, chain_groupings=None):
     """
     Compute pDockQ and PPV scores for a given structure and JSON file
     
     Parameters:
         - structure_file (str): Path to the structure file (CIF or PDB)
         - json_file (str): Path to the JSON file
+        - chain_groupings (list/tuple, optional): Grouping of chain IDs into two protein groups,
+            e.g. [('A', 'B'), ('C')]. If None, original behavior is used.
     
     Returns:
         - pdockq (float): pDockQ score
@@ -234,6 +292,11 @@ def compute_pdockq(structure_file, json_file):
         residue_plddt = average_plddt_per_residue(plddt, residues)
     else:
         residue_plddt = plddt
+
+    if chain_groupings is not None:
+        merged_chain_coords, merged_plddt = _merge_chain_groups(chain_coords, residue_plddt, chain_groupings)
+        return calc_pdockq(merged_chain_coords, merged_plddt)
+
     return calc_pdockq(chain_coords, residue_plddt)
 
 ####################################################################################################
