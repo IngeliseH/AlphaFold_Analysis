@@ -52,7 +52,7 @@ def collect_model_data(folder_path, distance_cutoff=6.0, pae_cutoff=14.0, all_at
 
     model_data = []
     # find rank 1 model
-    rank1_model_file = next((f for f in structure_files if re.search(r'(rank|model)_1', f.name)), None)
+    rank1_model_file = next((f for f in structure_files if re.search('rank_001', f.name)), None)
     rank1_structure_model = parse_structure_file(rank1_model_file, is_pdb) if rank1_model_file else None
     chain_residue_map = map_chains_and_residues(rank1_structure_model)
     abs_res_lookup_dict = {(chain_id, res_id): abs_res_id for chain_id, res_id, _, abs_res_id in chain_residue_map}

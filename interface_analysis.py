@@ -233,11 +233,11 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
     # Determine chain groupings based on dimer presence
     chain_groupings = None
     if not p1_is_dimer and not p2_is_dimer: # p1_Fx+p2_Fy
-        chain_groupings = [('A'), ('B')]
+        chain_groupings = [('A',), ('B',)]
     elif p1_is_dimer and not p2_is_dimer: # p1_dimer_Fx+p2_Fy
-        chain_groupings = [('A', 'B'), ('C')]
+        chain_groupings = [('A', 'B'), ('C',)]
     elif not p1_is_dimer and p2_is_dimer: # p1_Fx+p2_dimer_Fy
-        chain_groupings = [('A'), ('B', 'C')]
+        chain_groupings = [('A',), ('B', 'C')]
     elif p1_is_dimer and p2_is_dimer: # p1_dimer_Fx+p2_dimer_Fy
         chain_groupings = [('A', 'B'), ('C', 'D')]
     else:
@@ -257,11 +257,9 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
     best_model = select_best_model(model_data)
     other_model_pairs = [set(m['secondary_pairs']) for m in model_data if m != best_model]
 
-    # find num chains in model
-    chains = [i for i in best_model['structure_model'].get_chains()]
-    if len(chains) == 2:
-        # Compute pdockq
-        best_model['pdockq'], _ = compute_pdockq(best_model['model_file'], best_model['json_file'])  
+    # Compute pdockq
+    best_model['pdockq'], _ = compute_pdockq(best_model['model_file'], best_model['json_file'], chain_groupings=chain_groupings)
+
     # Extract iptm
     best_model['iptm'] = extract_iptm(best_model['log_file'], best_model['model_rank'])
 
@@ -314,6 +312,9 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 #folder_path = '/Volumes/T7/screen_results/centriole/Ana2_Sas-4/Ana2_F1+Sas-4_F3'
 #folder_path = '/Volumes/T7/screen_results/dimers/Cnn_dimer_Cnn_dimer/Cnn_dimer_F2+Cnn_dimer_F4_output'
 # folder_path = '/Volumes/T7/screen_results/PCM/Cnn_Cnn/Cnn_F2+Cnn_F2'
+#folder_path = '/Volumes/T7/screen_results/centriole/Ana1_Asl/Ana1_F5+Asl_F2'
+# folder_path = '/Volumes/T7/screen_results/dimers/Ana1_Asl_dimer/Ana1_F5+Asl_dimer_F2_output'
+
 
 # interface_data = find_and_score_interfaces(folder_path)
 # # Display the interfaces
@@ -330,6 +331,7 @@ def find_and_score_interfaces(folder_path, pair_distance=6.0, interface_separati
 #         print(f"  Avg pct ROP: {interface['avg_pct_rop']:.2f}")
 #         print(f"  min_pae: {interface['min_pae']:.2f}")
 #         print(f"  Location: {interface['location']}")
+#         print(f"  pDockQ: {interface['pdockq']:.2f}")
 #         #if 'location' in interface:
 #             #print(f"  Location: {interface['location']}")
 #             #print(f"  ROP: {interface['rop']}")

@@ -75,18 +75,24 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
     if not isinstance(structure_model, Model.Model):
         raise TypeError("structure_input must be a valid file path or protein model object.")
 
-    # Get residue absolute IDs and coordinates
+    CA_PADDING = 12  # max amino acid length is lysine (11.3)
+
+    # Get residue absolute IDs and coordinates for each chain
     chain_residues = {}
     for chain in structure_model.get_chains():
         residues = []
         for res in chain.get_residues():
             abs_res_id = abs_res_lookup_dict.get((chain.id, res.id[1]))
-            if abs_res_id is not None:
-                if all_atom:
-                    atom_coords = np.array([atom.coord for atom in res.get_atoms()])
-                    residues.append((abs_res_id, atom_coords))
-                elif 'CA' in res:
-                    residues.append((abs_res_id, res['CA'].coord))
+            if abs_res_id is None:
+                print(f"Residue {res.resname} {res.id[1]} in chain {chain.id} "
+                      f"not found in abs_res_lookup_dict; skipping.")
+                continue
+            if all_atom:
+                atom_coords = np.array([atom.coord for atom in res.get_atoms()])
+                ca_coord = res['CA'].coord if 'CA' in res else atom_coords.mean(axis=0)
+                residues.append((abs_res_id, atom_coords, ca_coord))
+            elif 'CA' in res:
+                residues.append((abs_res_id, res['CA'].coord))
         chain_residues[chain.id] = residues
     
     # If chain_groupings is provided, group residues accordingly
@@ -100,20 +106,19 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
             updated_chain_group_list = []
             for current_group in chain_groupings:
                 new_group_elements = []
-                for chain_identifier in current_group: # Renamed 'id' to 'chain_identifier'
-                    # shift by 1 letter
+                for chain_identifier in current_group:
                     shifted_chain_id = chr(ord(chain_identifier) + 1)
                     new_group_elements.append(shifted_chain_id)
                     updated_chain_group_list.append(shifted_chain_id)
                 updated_chain_groupings.append(tuple(new_group_elements))
-            chain_groupings = updated_chain_groupings # Reassign to update chain_groupings
+            chain_groupings = updated_chain_groupings
             grouped_chain_list = sorted(updated_chain_group_list)
         
         # Add any unaccounted for chains to the groupings
         if len(grouped_chain_list) < len(chain_ids):
             for chain_id in chain_ids:
                 if chain_id not in grouped_chain_list:
-                    chain_groupings.append(chain_id)
+                    chain_groupings.append((chain_id,))
 
         grouped_chain_residues = {}
         for group in chain_groupings:
@@ -122,56 +127,82 @@ def get_residue_pairs(structure_input, distance_cutoff, abs_res_lookup_dict, all
                 if chain_id in chain_residues:
                     group_residues.extend(chain_residues[chain_id])
                 else:
-                    print(f"Warning: Chain {chain_id} not found in the structure.")
+                    print(f"Chain {chain_id} not found in the structure.")
             grouped_chain_residues[group] = group_residues
         chain_residues = grouped_chain_residues
 
-    unique_residue_pairs = set()  # Track unique residue pairs
+    # Build trees and cache coordinates for each chain
     chain_ids = list(chain_residues.keys())
 
-    # Iterate over chain pairs
+    # Cache: per chain → (ca_tree, ca_res_map, all_coords, all_res_map)
+    chain_cache = {}
+    for cid in chain_ids:
+        residues = chain_residues[cid]
+        if not residues:
+            chain_cache[cid] = None
+            continue
+
+        ca_coords = np.vstack([r[2] for r in residues])
+        ca_res_map = np.array([r[0] for r in residues])
+        ca_tree = cKDTree(ca_coords)
+
+        if all_atom:
+            all_coords = np.vstack([r[1] for r in residues])
+            all_res_map = np.repeat(
+                [r[0] for r in residues],
+                [len(r[1]) for r in residues]
+            )
+        else:
+            all_coords = None
+            all_res_map = None
+
+        chain_cache[cid] = (ca_tree, ca_res_map, all_coords, all_res_map)
+
+    # Interface detection for each chain pair
+    unique_residue_pairs = set()
+
     for i, chain1_id in enumerate(chain_ids[:-1]):
-        residues1 = chain_residues[chain1_id]
-        for chain2_id in chain_ids[i+1:]:
-            residues2 = chain_residues[chain2_id]
-            if not residues1 or not residues2:
+        if chain_cache[chain1_id] is None:
+            continue
+        ca_tree1, ca_map1, all_coords1, all_map1 = chain_cache[chain1_id]
+
+        for chain2_id in chain_ids[i + 1:]:
+            if chain_cache[chain2_id] is None:
                 continue
+            ca_tree2, ca_map2, all_coords2, all_map2 = chain_cache[chain2_id]
 
             if all_atom:
-                # Concatenate all atom coordinates for each chain
-                coords1 = np.concatenate([r[1] for r in residues1])
-                coords2 = np.concatenate([r[1] for r in residues2])
-                res_map1 = np.repeat([r[0] for r in residues1], [len(r[1]) for r in residues1])
-                res_map2 = np.repeat([r[0] for r in residues2], [len(r[1]) for r in residues2])
+                # Pass 1: fast CA-vs-CA screen with relaxed threshold
+                ca_candidate_pairs = ca_tree1.query_ball_tree(ca_tree2, r=distance_cutoff + CA_PADDING)
+                candidate_res1 = {ca_map1[idx1] for idx1, hits in enumerate(ca_candidate_pairs) if hits}
+                candidate_res2 = {ca_map2[idx2] for hits in ca_candidate_pairs for idx2 in hits}
+
+                if not candidate_res1:
+                    continue
+
+                # Pass 2: all-atom check on candidates only
+                mask1 = np.isin(all_map1, list(candidate_res1))
+                mask2 = np.isin(all_map2, list(candidate_res2))
+                sub_tree2 = cKDTree(all_coords2[mask2])
+                sub_map2 = all_map2[mask2]
+                sub_coords1 = all_coords1[mask1]
+                sub_map1 = all_map1[mask1]
+
+                neighbors = sub_tree2.query_ball_point(sub_coords1, r=distance_cutoff)
+                for idx1, indices in enumerate(neighbors):
+                    r1 = sub_map1[idx1]
+                    for idx2 in indices:
+                        unique_residue_pairs.add(tuple(sorted((r1, sub_map2[idx2]))))
+
             else:
-                # Use CA coordinates
-                coords1 = np.array([r[1] for r in residues1])
-                coords2 = np.array([r[1] for r in residues2])
-                res_map1 = np.array([r[0] for r in residues1])
-                res_map2 = np.array([r[0] for r in residues2])
+                # CA-only: single tree-vs-tree query
+                neighbors = ca_tree1.query_ball_tree(ca_tree2, r=distance_cutoff)
+                for idx1, indices in enumerate(neighbors):
+                    r1 = ca_map1[idx1]
+                    for idx2 in indices:
+                        unique_residue_pairs.add(tuple(sorted((r1, ca_map2[idx2]))))
 
-            # Use KD-tree for efficient distance calculation
-            tree2 = cKDTree(coords2)
-            neighbors = tree2.query_ball_point(coords1, r=distance_cutoff)
-
-            for idx1, indices in enumerate(neighbors):
-                abs_res_id1 = res_map1[idx1]
-                for idx2 in indices:
-                    abs_res_id2 = res_map2[idx2]
-
-                    # Add the pair in sorted order to ensure uniqueness
-                    pair = tuple(sorted((abs_res_id1, abs_res_id2)))
-
-                    # Skip if the pair has already been identified
-                    if pair in unique_residue_pairs:
-                        continue
-
-                    # Add the new unique pair
-                    unique_residue_pairs.add(pair)
-
-    # Convert the set of unique pairs to a list
-    residue_pairs = list(unique_residue_pairs)
-    return residue_pairs
+    return list(unique_residue_pairs)
 
 def find_confident_pairs(residue_pairs, pae_data, pae_cutoff):
     """
